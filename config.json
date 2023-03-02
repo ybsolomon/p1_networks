@@ -1,5 +1,5 @@
 {
-    "The Server’s IP Address" : "10.1.98.60",
+    "The Server’s IP Address" : "192.168.64.2",
     "Source Port Number for UDP" : 9876,
     "Destination Port Number for UDP" : 8765,
     "Destination Port Number for TCP Head SYN" : 3,

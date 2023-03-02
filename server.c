@@ -40,6 +40,8 @@ int main(int argc, char *argv[]) {
     sin.sin_addr.s_addr = INADDR_ANY; 
     sin.sin_port = htons(port);
 
+    printf("%d\n", htons(port));
+
     int optval = 1;
     if (setsockopt (sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
         perror ("couldn’t reuse address");
