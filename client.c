@@ -59,11 +59,16 @@ int main(int argc, char *argv[]) {
         cleanExit();
     }
 
-    // if (send_packets(file, strlen(file), sock) < 0) {
-    //     perror("Could not send packets, please try again later.");
-    //     cleanExit();
+    // get config file info
+    // int i = 0;
+    // while (i++ < 100) {
+    if (send_packets(file, strlen(file), sock) < 0) {
+        perror("Could not send packets, please try again later.");
+        cleanExit();
+    }
     // }
+    
 
     printf("Connected!\n");
-    // in_addr_t server_addr = *(in_addr_t *) host->h_addr_list[0];
+    
 }
