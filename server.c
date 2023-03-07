@@ -57,7 +57,6 @@ int main(int argc, char *argv[]) {
         perror("error listening"); 
         cleanExit();
     }
-    
 
     struct sockaddr_in addr;
     int client_sock, addr_len = sizeof(addr);
@@ -70,17 +69,26 @@ int main(int argc, char *argv[]) {
         cleanExit(); 
     }
 
-    char *file = malloc(128);
-    // int rv = 0;
-    // while ((rv = receive_packets(file, 128, sock)) > 0) {
-    //     perror("Could not recieve packets, please try again later.");
-    //     cleanExit();
-    // }
+    int size = 1024;
+    char *file = malloc(size);
+    int rv = 0;
+    while ((rv = receive_packets(file, size, client_sock)) > 0) {
+        // printf("bits received = %d\n", rv);
+        // printf("file = \"%s\"\n", file);
+
+        size = strlen(file);
+    }
+
+    printf("file = %s\n", file);
+
+    // printf("packets received = %d\n", rv);
+    //     printf("file = \"%s\"\n", file);
 
     // if (rv < 0) {
     //     perror("An error has occurred, please try again later.");
     //     cleanExit();
     // }
 
-    printf("connecetd!");
+
+    printf("connected\n");
 }
