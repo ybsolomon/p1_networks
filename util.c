@@ -32,18 +32,32 @@ int send_packets(char *buffer, int buffer_len, int sock) {
     int sent_bytes = send(sock, buffer, buffer_len, 0);
 
     if (sent_bytes < 0) {
-        perror ("send() failed"); return 0;
+        perror ("send() failed"); 
+        return 0;
     }
 }
 
 int receive_packets(char *buffer, int buffer_len, int sock) {
-    int num_received = recv(sock, buffer, buffer_len, 0);
+    char *temp = malloc(buffer_len);
+    int num_received = recv(sock, temp, buffer_len, 0);
 
     if (num_received < 0) {
-        perror ("recv() failed");
+        perror("recv() failed");
     } else if (num_received == 0) { /* sender has closed connection */ 
         return EOF;
-    } else {
-        return num_received; /* might not be a full record!*/
+    } 
+    
+    if (num_received + strlen(buffer) > buffer_len) {
+        buffer_len *= 2;
+        printf("resizing buffer to size = %d\n ", buffer_len);
+        buffer = realloc(buffer, buffer_len);
+
+        printf("buffer = %s\n\n", buffer);
     }
+
+    if (strcmp(buffer, temp) != 0) {
+        strcat(buffer, temp);
+    }
+    
+    return num_received; /* might not be a full record!*/
 }
