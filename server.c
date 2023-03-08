@@ -7,6 +7,7 @@
 #include <netdb.h>
 #include <signal.h>
 #include <netinet/in.h>
+#include <time.h>
 
 #include "cJSON/cJSON.h"
 #include "util.h"
@@ -14,6 +15,10 @@
 void cleanExit() {
     printf("\n");
     exit(0);
+}
+
+int receive_udp(int sock, int port) {
+    return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -40,16 +45,14 @@ int main(int argc, char *argv[]) {
     sin.sin_addr.s_addr = INADDR_ANY; 
     sin.sin_port = htons(port);
 
-    printf("%d\n", htons(port));
-
     int optval = 1;
     if (setsockopt (sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
-        perror ("couldn’t reuse address");
+        perror ("couldn’t reuse TCP address");
         abort(); 
     }
 
     if (bind(sock, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
-        perror("Could not bind to given address.");
+        perror("Could not bind to given TCP address.");
         abort(); 
     }
 
@@ -73,22 +76,60 @@ int main(int argc, char *argv[]) {
     char *file = malloc(size);
     int rv = 0;
     while ((rv = receive_packets(file, size, client_sock)) > 0) {
-        // printf("bits received = %d\n", rv);
-        // printf("file = \"%s\"\n", file);
-
         size = strlen(file);
     }
 
     printf("file = %s\n", file);
 
-    // printf("packets received = %d\n", rv);
-    //     printf("file = \"%s\"\n", file);
+    // config file has been transferred over, time for UDP train
 
-    // if (rv < 0) {
-    //     perror("An error has occurred, please try again later.");
-    //     cleanExit();
-    // }
+    int udp_sock = socket(AF_INET, SOCK_DGRAM, PF_UNSPEC);
 
+    cJSON *json = cJSON_Parse(file);
+    cJSON *dst = cJSON_GetObjectItem(json, "Destination Port Number for UDP");
+    cJSON *train_len = cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train");
 
-    printf("connected\n");
+    struct sockaddr_in udp_sin;
+    memset (&udp_sin, 0, sizeof (udp_sin));
+    udp_sin.sin_family = AF_INET; 
+    udp_sin.sin_addr.s_addr = INADDR_ANY; 
+    udp_sin.sin_port = htons(cJSON_GetNumberValue(dst));
+
+    if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
+        perror("couldn’t reuse UDP address");
+        abort(); 
+    }
+
+    if (bind(udp_sock, (struct sockaddr *) &udp_sin, sizeof (udp_sin)) < 0) {
+        perror("Could not bind to given UDP address.");
+        abort(); 
+    }
+
+    int payload_size = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train"));
+    int num_packets = cJSON_GetNumberValue(train_len);
+    char *packet = malloc(payload_size);
+
+    int rounds = 1; // change later, testing low entropy data sending
+    while (rounds++ < 2) {
+        int first = recvfrom(udp_sock, packet, payload_size, 0, (struct sockaddr *) &udp_sin, &addr_len);
+
+        if (first < 0) {
+            perror("Couldn't read first packet, aborting");
+            cleanExit();
+        }
+
+        clock_t time = clock();
+
+        for (int i = 1; i < num_packets; i++) {
+            if (recvfrom(udp_sock, packet, payload_size, 0, (struct sockaddr *) &udp_sin, &addr_len) < 0) {
+                printf("an error has occured with the UDP packet #%d\n", i + 1);
+            }
+        }
+
+        time = clock() - time;
+        printf("time to receive all %d %s entropy packets was %ld\n", num_packets, rounds == 1 ? "high" : "low", time);
+    
+    }
+
+    printf("server done!\n");
 }
