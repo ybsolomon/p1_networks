@@ -19,7 +19,32 @@ void cleanExit() {
     exit(0);
 }
 
-int receive_udp(int sock, int port) {
+clock_t receive_udp(int sock, cJSON *json, struct sockaddr_in udp_sin) {
+
+    int payload_size = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train"));
+    int train_len = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train"));
+    char *packet = malloc(payload_size);
+
+    int addr_len = sizeof(udp_sin);
+    int first = recvfrom(sock, packet, payload_size, 0, (struct sockaddr *) &udp_sin, &addr_len);
+
+    if (first < 0) {
+        perror("Couldn't read first packet, aborting");
+        cleanExit();
+    }
+
+    clock_t time = clock();
+
+    for (int i = 1; i < train_len; i++) {
+        if (recvfrom(sock, packet, payload_size, 0, (struct sockaddr *) &udp_sin, &addr_len) < 0) {
+            printf("an error has occured with the UDP packet #%d\n", i + 1);
+            printf("no more packets found\n");
+            break;
+        }
+    }
+
+    time = clock() - time;
+
     return 0;
 }
 
@@ -28,7 +53,7 @@ char *get_config(int sock, int size) {
 
     if (receive_packets(file, size, sock) < 0) {
         perror("Something wen't wrong when retreiving config file, please try again later.");
-        return -1;
+        return (char *) -1;
     }
 
     return file;
@@ -62,8 +87,7 @@ int setup_tcp(int sock, int port) {
     int client_sock, addr_len = sizeof(addr);
 
     client_sock = accept(sock, (struct sockaddr *) &addr, &addr_len); 
-    printf("client_sock == null? %d\n", client_sock == 0);
-    // printf("Connected.\n");
+    
     if (client_sock < 0) {
         perror("error accepting connection");
         return -1;
@@ -85,6 +109,15 @@ int setup_udp(int sock, cJSON *json, struct sockaddr_in *udp_sin) {
     int optval = 1;
     if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
         perror("couldn’t reuse UDP address");
+        return -1;
+    }
+
+    struct timeval tv;
+    tv.tv_sec = 1;
+    tv.tv_usec = 0;
+
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *) &tv, sizeof (tv)) < 0) { // for port reuse after a bad exit
+        perror("couldn’t set timeout value");
         return -1;
     }
 
@@ -128,34 +161,20 @@ int main(int argc, char *argv[]) {
         cleanExit();
     }
 
-    cJSON *train_len = cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train");
-
     int payload_size = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train"));
-    int num_packets = cJSON_GetNumberValue(train_len);
+    int train_len = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train"));
     char *packet = malloc(payload_size);
 
-    int rounds = 1; // change later, testing low entropy data sending
-    while (rounds++ < 2) {
-        printf("hello there\n");
-        int addr_len = sizeof(udp_sin);
-        int first = recvfrom(udp_sock, packet, payload_size, 0, (struct sockaddr *) &udp_sin, &addr_len);
+    printf("about to get low entropy packets\n");
+    clock_t low_time = receive_udp(udp_sock, json, udp_sin); // first train of packets
+    printf("time to receive all %d low entropy packets was %ld\n", train_len, low_time);
 
-        if (first < 0) {
-            perror("Couldn't read first packet, aborting");
-            cleanExit();
-        }
+    sleep(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time")));
 
-        clock_t time = clock();
+    // clock_t high_time = receive_udp(udp_sock, json, udp_sin); // second train of packets
+    // printf("time to receive all %d high entropy packets was %ld\n", train_len, high_time);
 
-        for (int i = 1; i < num_packets; i++) {
-            if (recvfrom(udp_sock, packet, payload_size, 0, (struct sockaddr *) &udp_sin, &addr_len) < 0) {
-                printf("an error has occured with the UDP packet #%d\n", i + 1);
-            }
-        }
-
-        time = clock() - time;
-        printf("time to receive all %d %s entropy packets was %ld\n", num_packets, rounds == 1 ? "high" : "low", time);
-    }
+    // clock_t time_diff = high_time - low_time;
 
     printf("server done!\n");
 }
