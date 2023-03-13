@@ -30,7 +30,7 @@ clock_t receive_udp(int sock, cJSON *json, struct sockaddr_in udp_sin) {
 
     if (first < 0) {
         perror("Couldn't read first packet, aborting");
-        cleanExit();
+        return -1;
     }
 
     clock_t time = clock();
@@ -45,7 +45,7 @@ clock_t receive_udp(int sock, cJSON *json, struct sockaddr_in udp_sin) {
 
     time = clock() - time;
 
-    return 0;
+    return time;
 }
 
 char *get_config(int sock, int size) {
@@ -99,7 +99,7 @@ int setup_tcp(int sock, int port) {
 int setup_udp(int sock, cJSON *json, struct sockaddr_in *udp_sin) {
     cJSON *dst = cJSON_GetObjectItem(json, "Destination Port Number for UDP");
 
-    memset(udp_sin, 0, sizeof (udp_sin));
+    memset(udp_sin, 0, sizeof (*udp_sin));
     udp_sin->sin_family = AF_INET; 
     udp_sin->sin_addr.s_addr = INADDR_ANY; 
     udp_sin->sin_port = htons(cJSON_GetNumberValue(dst));
@@ -171,10 +171,12 @@ int main(int argc, char *argv[]) {
 
     sleep(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time")));
 
-    // clock_t high_time = receive_udp(udp_sock, json, udp_sin); // second train of packets
-    // printf("time to receive all %d high entropy packets was %ld\n", train_len, high_time);
+    clock_t high_time = receive_udp(udp_sock, json, udp_sin); // second train of packets
+    printf("time to receive all %d high entropy packets was %ld\n", train_len, high_time);
 
-    // clock_t time_diff = high_time - low_time;
+    clock_t time_diff = high_time - low_time;
+
+    printf("the time diff is %ldms\n", time_diff);
 
     printf("server done!\n");
 }
