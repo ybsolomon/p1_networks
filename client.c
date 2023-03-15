@@ -92,6 +92,7 @@ int main(int argc, char *argv[]) {
         cleanExit();
     }
 
+    close(sock);
     // the config file has been sent, time to send UDP packets
 
     int udp_sock = socket(AF_INET, SOCK_DGRAM, PF_UNSPEC);
@@ -158,7 +159,7 @@ int main(int argc, char *argv[]) {
         char *num = convert_to_binary(i+1);
 
         strcpy(high, num);
-        strncat(high, data, payload - 32);
+        strncat(high, data, payload - 33);
         
         int status = 0;
         if ((status = sendto(udp_sock, high, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
@@ -167,9 +168,25 @@ int main(int argc, char *argv[]) {
             perror("failed to send packet");
             abort();
         }
-        // printf("udp packet #%d sent\n", i+1);
     }
 
-    
+    sock = socket(AF_INET, SOCK_STREAM, PF_UNSPEC);
+
+    if (setup_socket(sock, &sin, json) < 0) {
+        cleanExit();
+    }
+
+    char *buf = malloc(128);
+
+    if (receive_packets(buf, 128, sock) < 0) {
+        cleanExit();
+    }
+
+    printf("Result: %s\n", buf);
+
+    free(buf);
+    free(json);
+
+    close(sock);
     printf("Connected!\n");
 }
