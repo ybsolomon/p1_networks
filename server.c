@@ -13,6 +13,18 @@
 #include "util.h"
 
 #define CONFIG 1024
+#define TIMEOUT 10
+
+int timeout = 0;
+
+void sig_handler(int errno) {
+    timeout = 1;
+
+    printf("timeout set to %d, starting next set of packets\n", timeout);
+    // abort();
+
+    alarm(TIMEOUT);
+}
 
 void cleanExit() {
     printf("\n");
@@ -26,20 +38,14 @@ clock_t receive_udp(int sock, cJSON *json, struct sockaddr_in udp_sin) {
     char *packet = malloc(payload_size);
 
     int addr_len = sizeof(udp_sin);
-    int first = recvfrom(sock, packet, payload_size, 0, (struct sockaddr *) &udp_sin, &addr_len);
 
-    if (first < 0) {
-        perror("Couldn't read first packet, aborting");
-        return -1;
-    }
+    printf("starting recvfrom\n");
 
     clock_t time = clock();
 
-    for (int i = 1; i < train_len; i++) {
-        if (recvfrom(sock, packet, payload_size, 0, (struct sockaddr *) &udp_sin, &addr_len) < 0) {
-            printf("an error has occured with the UDP packet #%d\n", i + 1);
-            printf("no more packets found\n");
-            break;
+    for (int i = 0, timeouts = 0; i < train_len && timeouts < 6; i++) {
+        if (timeout != 0 || recvfrom(sock, packet, payload_size, 0, (struct sockaddr *) &udp_sin, &addr_len) < 0) {
+            printf("timeouts = %d, an error has occured with the UDP packet #%d\n", timeouts++, i+1);
         }
     }
 
@@ -104,7 +110,7 @@ int setup_udp(int sock, cJSON *json, struct sockaddr_in *udp_sin) {
     udp_sin->sin_addr.s_addr = INADDR_ANY; 
     udp_sin->sin_port = htons(cJSON_GetNumberValue(dst));
 
-    printf("port = %d\n", udp_sin->sin_port);
+    printf("udp port = %d\n", udp_sin->sin_port);
 
     int optval = 1;
     if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
@@ -113,7 +119,7 @@ int setup_udp(int sock, cJSON *json, struct sockaddr_in *udp_sin) {
     }
 
     struct timeval tv;
-    tv.tv_sec = 1;
+    tv.tv_sec = 5;
     tv.tv_usec = 0;
 
     if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *) &tv, sizeof (tv)) < 0) { // for port reuse after a bad exit
@@ -132,6 +138,7 @@ int setup_udp(int sock, cJSON *json, struct sockaddr_in *udp_sin) {
 int main(int argc, char *argv[]) {
     signal(SIGTERM, cleanExit); // clean exits only
     signal(SIGINT, cleanExit);
+    signal(SIGALRM, sig_handler);
 
     if (argc != 2) {
         printf("Usage: Please enter ONLY a port number.\n");
@@ -165,18 +172,28 @@ int main(int argc, char *argv[]) {
     int train_len = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train"));
     char *packet = malloc(payload_size);
 
+    alarm(TIMEOUT);
+
     printf("about to get low entropy packets\n");
     clock_t low_time = receive_udp(udp_sock, json, udp_sin); // first train of packets
     printf("time to receive all %d low entropy packets was %ld\n", train_len, low_time);
 
     sleep(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time")));
 
+    timeout = 0;
+    alarm(TIMEOUT);
+
+    int wait = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time"));
+    printf("waiting %d seconds to receive packets\n", wait);
+    sleep(wait);
+
+    printf("about to get high entropy packets\n");
     clock_t high_time = receive_udp(udp_sock, json, udp_sin); // second train of packets
     printf("time to receive all %d high entropy packets was %ld\n", train_len, high_time);
 
     clock_t time_diff = high_time - low_time;
 
-    printf("the time diff is %ldms\n", time_diff);
+    printf("the time diff is %ld\n", time_diff);
 
     printf("server done!\n");
 }
