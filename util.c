@@ -33,8 +33,10 @@ int send_packets(char *buffer, int buffer_len, int sock) {
 
     if (sent_bytes < 0) {
         perror ("send() failed"); 
-        return 0;
+        return -1;
     }
+    
+    return 0;
 }
 
 int receive_packets(char *buffer, int buffer_len, int sock) {
