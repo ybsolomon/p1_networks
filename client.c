@@ -25,13 +25,18 @@ char *convert_to_binary(int num) { // this makes a big endian string representat
     for (c = 31; c >= 0; c--) {
         k = num >> c; // getting bit value
 
-        if (k & 1)
+        if (k & 1) {
             *(num_str + 31 - c) = '1';
-        else
+        } else {
             *(num_str + 31 - c) = '0';
+        }
     }
 
     return num_str;
+}
+
+int send_udp(int train_len, int payload_size, int sock) {
+    return 0;
 }
 
 int setup_socket(int sock, struct sockaddr_in *sin, cJSON *json) {
@@ -104,7 +109,7 @@ int main(int argc, char *argv[]) {
     udp_sin.sin_addr.s_addr = server_addr; 
     udp_sin.sin_port = htons(cJSON_GetNumberValue(dst));
 
-    printf("port = %d\n", udp_sin.sin_port);
+    printf("port = %f\n", cJSON_GetNumberValue(dst));
 
     int optval = 1;
     if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
@@ -153,11 +158,8 @@ int main(int argc, char *argv[]) {
         char *num = convert_to_binary(i+1);
 
         strcpy(high, num);
-        // bzero((low + 32), cJSON_GetNumberValue(payload_size) - 32);
         strncat(high, data, payload - 32);
-        // printf("high entropy packet length = %ld\n", strlen(high));
-        break;
-
+        
         int status = 0;
         if ((status = sendto(udp_sock, high, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
             printf("status = %d\n", status);
