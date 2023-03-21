@@ -137,6 +137,8 @@ int main(int argc, char *argv[]) {
             perror("failed to send packet");
             abort();
         }
+
+        usleep(200);
     }
 
     int wait = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time"));
@@ -168,6 +170,7 @@ int main(int argc, char *argv[]) {
             perror("failed to send packet");
             abort();
         }
+        usleep(200);
     }
 
     sock = socket(AF_INET, SOCK_STREAM, PF_UNSPEC);
