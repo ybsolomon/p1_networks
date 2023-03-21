@@ -109,7 +109,7 @@ int setup_udp(int sock, cJSON *json, struct sockaddr_in *udp_sin) {
     }
 
     struct timeval tv;
-    tv.tv_sec = 120;
+    tv.tv_sec = 15;
     tv.tv_usec = 0;
 
     if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *) &tv, sizeof (tv)) < 0) { // for port reuse after a bad exit
