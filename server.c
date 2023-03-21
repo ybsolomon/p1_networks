@@ -162,14 +162,13 @@ int main(int argc, char *argv[]) {
     int payload_size = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train"));
     int train_len = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train"));
 
-
     printf("about to get low entropy packets\n");
     clock_t low_time = receive_udp(udp_sock, json, udp_sin); // first train of packets
-    printf("time to receive all %d low entropy packets was %ld\n\n", train_len, low_time);
+    printf("time to receive all %d low entropy packets was %.6f seconds\n\n", train_len, (double) low_time / (double) CLOCKS_PER_SEC);
 
     printf("about to get high entropy packets\n");
     clock_t high_time = receive_udp(udp_sock, json, udp_sin); // second train of packets
-    printf("time to receive all %d high entropy packets was %ld\n\n", train_len, high_time);
+    printf("time to receive all %d high entropy packets was %.6f seconds\n\n", train_len, (double) high_time / (double) CLOCKS_PER_SEC);
 
     clock_t time_diff = high_time - low_time;
     printf("the time diff is %ld\n", time_diff);
@@ -182,7 +181,7 @@ int main(int argc, char *argv[]) {
         cleanExit(); 
     }
 
-    char *packet = abs(time_diff) > 100 ? "There is compression between these two ports!\n" : "No compression detecetd!\n";
+    char *packet = abs((double) time_diff / (double) CLOCKS_PER_SEC) > 0.1 ? "There is compression between these two ports!\n" : "No compression detected!\n";
 
     if (send_packets(packet, strlen(packet), client_sock) < 0) {
         printf("Could not send compression results to client\n");
