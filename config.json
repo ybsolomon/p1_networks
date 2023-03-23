@@ -1,9 +1,10 @@
 {
-    "The Server’s IP Address" : "192.168.64.2",
+    "The Server's IP Address" : "192.168.64.2",
+    "The Client's IP Address": "192.168.64.3",
     "Source Port Number for UDP" : 9876,
     "Destination Port Number for UDP" : 8765,
-    "Destination Port Number for TCP Head SYN" : 3,
-    "Destination Port Number for TCP Tail SYN" : 3,
+    "Destination Port Number for TCP Head SYN" : 2498,
+    "Destination Port Number for TCP Tail SYN" : 3756,
     "Port Number for TCP" : 7325,
     "The Size of the UDP Payload in the UDP Packet Train" : 1000,
     "Inter-Measurement Time" : 15,
