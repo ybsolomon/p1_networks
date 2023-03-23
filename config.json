@@ -1,6 +1,6 @@
 {
-    "The Server's IP Address" : "192.168.64.2",
-    "The Client's IP Address": "192.168.64.3",
+    "The Client's IP Address" : "192.168.64.2",
+    "The Server's IP Address": "192.168.64.3",
     "Source Port Number for UDP" : 9876,
     "Destination Port Number for UDP" : 8765,
     "Destination Port Number for TCP Head SYN" : 2498,

@@ -59,7 +59,7 @@ unsigned short csum(unsigned short *ptr, int nbytes)
 	return(answer);
 }
 
-char *setup_syn_packet(cJSON *json, bool low, struct sockaddr_in *sin) {
+char *setup_syn_packet(cJSON *json, bool low, int sock) {
 	int train_len = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train"));
 	int payload_size = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train"));
 
@@ -74,25 +74,28 @@ char *setup_syn_packet(cJSON *json, bool low, struct sockaddr_in *sin) {
 
 	data = datagram + sizeof(struct iphdr) + sizeof(struct tcphdr);
 
-	// if (low) {
+	cJSON *ip = cJSON_GetObjectItem(json, "The Server's IP Address");
+    cJSON *port = cJSON_GetObjectItem(json, "Port Number for TCP");
 
-	// 	char *low = malloc(payload_size);
-    //     char *num = convert_to_binary(i+1);
+	printf("the server's IP address = %s\n", ip->valuestring);
 
-    //     strcpy(low, num);
-    //     bzero((low + 32), cJSON_GetNumberValue(payload_size) - 32);
+    in_addr_t server_addr = inet_addr(ip->valuestring); 
+    unsigned short server_port = cJSON_GetNumberValue(port);
 
-	// // strcpy(data , );
-	// } else {
-	// // strcpy(data , );
-	// }
+	struct sockaddr_in sin; 
+	memset(&sin, 0, sizeof(sin));
+
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons(server_port);
+	
+	sin.sin_addr.s_addr = server_addr;
 	
 	char *server_ip = cJSON_GetObjectItem(json, "The Server's IP Address")->valuestring;
 
 	//some address resolution
-	sin->sin_family = AF_INET;
-	sin->sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Port Number for TCP")));
-	sin->sin_addr.s_addr = inet_addr(server_ip);
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Port Number for TCP")));
+	sin.sin_addr.s_addr = inet_addr(server_ip);
 
 	iph->ihl = 5;
 	iph->version = 4;
@@ -104,7 +107,7 @@ char *setup_syn_packet(cJSON *json, bool low, struct sockaddr_in *sin) {
 	iph->protocol = IPPROTO_TCP;
 	iph->check = 0;		//Set to 0 before calculating checksum
 	iph->saddr = inet_addr(server_ip);	//Spoof the source ip address
-	iph->daddr = sin->sin_addr.s_addr;
+	iph->daddr = sin.sin_addr.s_addr;
 
 	tcph->source = htons(1234);
 	tcph->dest = htons(80);
@@ -122,7 +125,7 @@ char *setup_syn_packet(cJSON *json, bool low, struct sockaddr_in *sin) {
 	tcph->urg_ptr = 0;
 
 	psh.source_address = inet_addr(server_ip);
-	psh.dest_address = sin->sin_addr.s_addr;
+	psh.dest_address = sin.sin_addr.s_addr;
 	psh.placeholder = 0;
 	psh.protocol = IPPROTO_TCP;
 	psh.tcp_length = htons(sizeof(struct tcphdr) + strlen(data));
@@ -134,6 +137,12 @@ char *setup_syn_packet(cJSON *json, bool low, struct sockaddr_in *sin) {
 	memcpy(pseudogram + sizeof(struct pseudo_header) , tcph , sizeof(struct tcphdr) + strlen(data)); // add tcp header
 
 	tcph->check = csum((unsigned short*) pseudogram , psize); // do the checksum and add it to the tcp header
+
+	if (sendto (sock, datagram, iph->tot_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
+		perror("sendto failed");
+	} else {
+		printf("Packet Send. Length : %d \n" , iph->tot_len);
+	}
 
 	return datagram;
 }
@@ -162,21 +171,10 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
-
-    cJSON *ip = cJSON_GetObjectItem(json, "The Server’s IP Address");
-	printf("the server's IP address = %s\n", cJSON_GetObjectItem(json, "The Server's IP Address")->valuestring);
-
-    in_addr_t server_addr = inet_addr(ip->valuestring); 
-
-	struct sockaddr_in sin; 
-	memset(&sin, 0, sizeof(sin));
-
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train")));
 	
-	sin.sin_addr.s_addr = server_addr;
 
-	char *syn_one = setup_syn_packet(json, cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for TCP Head SYN")), &sin);
-	// char *syn_two = setup_syn_packet(json, cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for TCP Tail SYN")), &sin);
+	char *syn_one = setup_syn_packet(json, cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for TCP Head SYN")), raw_sock);
+	// char *syn_two = setup_syn_packet(json, cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for TCP Tail SYN")), &sin, raw_sock);
 
+	
 }
