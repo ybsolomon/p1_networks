@@ -65,14 +65,59 @@ int send_packet(char *filename, cJSON *json, int sd, bool head, struct sockaddr_
 
     // Allocate memory for various arrays.
     packet = allocate_ustrmem (IP_MAXPACKET);
+    interface = allocate_strmem (40);
+    target = allocate_strmem (40);
     src_ip = allocate_strmem (INET_ADDRSTRLEN);
     dst_ip = allocate_strmem (INET_ADDRSTRLEN);
     ip_flags = allocate_intmem (4);
     tcp_flags = allocate_intmem (8);
 
+    // Interface to send packet through.
+    strcpy (interface, "eno1");
+
+    // Submit request for a socket descriptor to look up interface.
+    if ((sd = socket (AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
+      perror ("socket() failed to get socket descriptor for using ioctl() ");
+      exit (EXIT_FAILURE);
+    }
+
+    // Use ioctl() to look up interface index which we will use to
+    // bind socket descriptor sd to specified interface with setsockopt() since
+    // none of the other arguments of sendto() specify which interface to use.
+    memset (&ifr, 0, sizeof (ifr));
+    snprintf (ifr.ifr_name, sizeof (ifr.ifr_name), "%s", interface);
+    if (ioctl (sd, SIOCGIFINDEX, &ifr) < 0) {
+      perror ("ioctl() failed to find interface ");
+      return (EXIT_FAILURE);
+    }
+    close (sd);
+    printf ("Index for interface %s is %i\n", interface, ifr.ifr_ifindex);
+
     // Source IPv4 address: you need to fill this out
-    strcpy(src_ip, cJSON_GetObjectItem(json, "The Client's IP Address")->valuestring);
-    strcpy(dst_ip, cJSON_GetObjectItem(json, "The Server's IP Address")->valuestring);
+    strcpy (src_ip, "192.168.0.240");
+
+    // Destination URL or IPv4 address: you need to fill this out
+    strcpy (target, "www.google.com");
+
+    // Fill out hints for getaddrinfo().
+    memset (&hints, 0, sizeof (struct addrinfo));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = hints.ai_flags | AI_CANONNAME;
+
+    // Resolve target using getaddrinfo().
+    if ((status = getaddrinfo (target, NULL, &hints, &res)) != 0) {
+      fprintf (stderr, "getaddrinfo() failed for target: %s\n", gai_strerror (status));
+      exit (EXIT_FAILURE);
+    }
+    ipv4 = (struct sockaddr_in *) res->ai_addr;
+    tmp = &(ipv4->sin_addr);
+    if (inet_ntop (AF_INET, tmp, dst_ip, INET_ADDRSTRLEN) == NULL) {
+      status = errno;
+      fprintf (stderr, "inet_ntop() failed for target.\nError message: %s", strerror (status));
+      exit (EXIT_FAILURE);
+    }
+    freeaddrinfo (res);
 
     // IPv4 header
 
