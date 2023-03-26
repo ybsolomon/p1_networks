@@ -18,6 +18,11 @@ void cleanExit() {
     exit(0);
 }
 
+struct packet_info {
+  short packet_id;
+  char *payload;
+};
+
 char *convert_to_binary(int num) { // this makes a big endian string representation of the int
     int c, k;
     char *num_str = malloc(32);
@@ -40,7 +45,7 @@ int send_udp(int train_len, int payload_size, int sock) {
 }
 
 int setup_socket(int sock, struct sockaddr_in *sin, cJSON *json) {
-    cJSON *ip = cJSON_GetObjectItem(json, "The Server’s IP Address");
+    cJSON *ip = cJSON_GetObjectItem(json, "The Server's IP Address");
     cJSON *port = cJSON_GetObjectItem(json, "Port Number for TCP");
 
     in_addr_t server_addr = inet_addr(ip->valuestring); 
@@ -98,7 +103,7 @@ int main(int argc, char *argv[]) {
     int udp_sock = socket(AF_INET, SOCK_DGRAM, PF_UNSPEC);
 
     cJSON *dst = cJSON_GetObjectItem(json, "Destination Port Number for UDP");
-    cJSON *ip = cJSON_GetObjectItem(json, "The Server’s IP Address");
+    cJSON *ip = cJSON_GetObjectItem(json, "The Server's IP Address");
 
     in_addr_t server_addr = inet_addr(ip->valuestring); 
 
@@ -125,13 +130,12 @@ int main(int argc, char *argv[]) {
     int train_len = cJSON_GetNumberValue(train);
 
     for (int i = 0; i < train_len; i++) { // LOW ENTROPY
-        char *low = malloc(payload);
-        char *num = convert_to_binary(i+1);
+        struct packet_info *info = malloc(sizeof(struct packet_info));
+        info->packet_id = i;
 
-        strcpy(low, num);
-        bzero((low + 32), cJSON_GetNumberValue(payload_size) - 32);
+        bzero((info + 2), cJSON_GetNumberValue(payload_size) - 2);
         int status = 0;
-        if ((status = sendto(udp_sock, low, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
+        if ((status = sendto(udp_sock, info, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
             printf("status = %d\n", status);
             printf("udp packet #%d failed to send\n", i+1);
             perror("failed to send packet");
@@ -154,17 +158,14 @@ int main(int argc, char *argv[]) {
         cleanExit();
     }
 
-    // printf("data = %s\n", data);
-
     for (int i = 0; i < train_len; i++) { // HIGH ENTROPY
-        char *high = malloc(payload);
-        char *num = convert_to_binary(i+1);
-
-        strcpy(high, num);
-        strncat(high, data, payload - 33);
+        struct packet_info *info = malloc(sizeof(struct packet_info));
+        info->packet_id = i;
+        info->payload = malloc(payload-2);
+        strncpy(info->payload, data, payload-2);
         
         int status = 0;
-        if ((status = sendto(udp_sock, high, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
+        if ((status = sendto(udp_sock, info, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
             printf("status = %d\n", status);
             printf("udp packet #%d failed to send\n", i+1);
             perror("failed to send packet");
@@ -191,5 +192,4 @@ int main(int argc, char *argv[]) {
     free(json);
 
     close(sock);
-    printf("Connected!\n");
 }
