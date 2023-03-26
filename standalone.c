@@ -59,39 +59,39 @@ unsigned short csum(unsigned short *ptr, int nbytes)
 	return(answer);
 }
 
-char *convert_to_binary(int num) { // this makes a big endian string representation of the int
-    int c, k;
-    short num_short = 0;
-	char *num_str = malloc(2); // 2 bits here
-	memset(num_str, 0, sizeof(*num_str));
+// char *convert_to_binary(int num) { // this makes a big endian string representation of the int
+//     int c, k;
+//     short num_short = 0;
+// 	char *num_str = malloc(2); // 2 bits here
+// 	memset(num_str, 0, sizeof(*num_str));
 
-    for (c = 15; c >= 0; c--) {
-        k = num >> c; // getting bit value
+//     for (c = 15; c >= 0; c--) {
+//         k = num >> c; // getting bit value
 
-        if (k & 1) {
-			num_short |= 1UL << c;
+//         if (k & 1) {
+// 			num_short |= 1UL << c;
 
-			*num_str |= 1UL << c;
-        } else {
-            // *(num_str + 15 - c) = '0';
-			// *num_str &= ~(1UL << c);
-			printf("got a 0\n");
-        }
+// 			*num_str |= 1UL << c;
+//         } else {
+//             // *(num_str + 15 - c) = '0';
+// 			// *num_str &= ~(1UL << c);
+// 			printf("got a 0\n");
+//         }
 
-		printf("%d\n", num_short);
-		printf("num_str = %d\n", num_str[c%8]);
-    }
+// 		printf("%d\n", num_short);
+// 		printf("num_str = %d\n", num_str[c%8]);
+//     }
 
-	for (int i = 15; 0 <= i; i--) {
-		printf("%c", (*num_str & (1 << i)) ? '1' : '0');
-	}
+// 	for (int i = 15; 0 <= i; i--) {
+// 		printf("%c", (*num_str & (1 << i)) ? '1' : '0');
+// 	}
 
-	// printf("num_str = %d\n", htons(atoi(num_str)));
-	// num_str[3] = 'l';
-	printf("\nshort = %d\n", num_short);
+// 	// printf("num_str = %d\n", htons(atoi(num_str)));
+// 	// num_str[3] = 'l';
+// 	printf("\nshort = %d\n", num_short);
 
-    return num_str;
-}
+//     return num_str;
+// }
 
 int setup_udp_socket(cJSON *json) {
 	int udp_sock;
