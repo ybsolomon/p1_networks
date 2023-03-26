@@ -59,8 +59,73 @@ unsigned short csum(unsigned short *ptr, int nbytes)
 	return(answer);
 }
 
-char *setup_syn_packet(cJSON *json, bool low, struct sockaddr_in *sin) {
-	int train_len = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train"));
+char *convert_to_binary(int num) { // this makes a big endian string representation of the int
+    int c, k;
+    short num_short = 0;
+	char *num_str = malloc(2); // 2 bits here
+	memset(num_str, 0, sizeof(*num_str));
+
+    for (c = 15; c >= 0; c--) {
+        k = num >> c; // getting bit value
+
+        if (k & 1) {
+			num_short |= 1UL << c;
+
+			*num_str |= 1UL << c;
+        } else {
+            // *(num_str + 15 - c) = '0';
+			// *num_str &= ~(1UL << c);
+			printf("got a 0\n");
+        }
+
+		printf("%d\n", num_short);
+		printf("num_str = %d\n", num_str[c%8]);
+    }
+
+	for (int i = 15; 0 <= i; i--) {
+		printf("%c", (*num_str & (1 << i)) ? '1' : '0');
+	}
+
+	// printf("num_str = %d\n", htons(atoi(num_str)));
+	// num_str[3] = 'l';
+	printf("\nshort = %d\n", num_short);
+
+    return num_str;
+}
+
+int setup_udp_socket(cJSON *json) {
+	int udp_sock;
+	if ((udp_sock = socket(AF_INET, SOCK_DGRAM, PF_UNSPEC)) < 0) {
+		perror("couldnt initialize socket");
+		return -1;
+	}
+
+    cJSON *dst = cJSON_GetObjectItem(json, "Destination Port Number for UDP");
+    cJSON *ip = cJSON_GetObjectItem(json, "The Server's IP Address");
+
+    in_addr_t server_addr = inet_addr(ip->valuestring); 
+
+    struct sockaddr_in udp_sin;
+    int addr_len = sizeof(udp_sin);
+
+    memset (&udp_sin, 0, sizeof (udp_sin));
+    udp_sin.sin_family = AF_INET; 
+    udp_sin.sin_addr.s_addr = server_addr; 
+    udp_sin.sin_port = htons(9999);
+
+    printf("port = %d\n", htons(9999));
+
+    int optval = 1;
+    if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
+        perror("couldn’t reuse UDP address");
+        return -1; 
+    }
+
+	return udp_sock;
+}
+
+char *send_syn(cJSON *json, int port, int sock) {
+	// int train_len = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train"));
 	int payload_size = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train"));
 
 	char *datagram = malloc(sizeof(struct iphdr) + sizeof(struct tcphdr) + payload_size);
@@ -74,25 +139,28 @@ char *setup_syn_packet(cJSON *json, bool low, struct sockaddr_in *sin) {
 
 	data = datagram + sizeof(struct iphdr) + sizeof(struct tcphdr);
 
-	// if (low) {
+	cJSON *ip = cJSON_GetObjectItem(json, "The Server's IP Address");
+    // cJSON *port = cJSON_GetObjectItem(json, "Port Number for TCP");
 
-	// 	char *low = malloc(payload_size);
-    //     char *num = convert_to_binary(i+1);
+	printf("the server's IP address = %s\n", ip->valuestring);
 
-    //     strcpy(low, num);
-    //     bzero((low + 32), cJSON_GetNumberValue(payload_size) - 32);
+    in_addr_t server_addr = inet_addr(ip->valuestring); 
+    unsigned short server_port = port;
 
-	// // strcpy(data , );
-	// } else {
-	// // strcpy(data , );
-	// }
+	struct sockaddr_in sin; 
+	memset(&sin, 0, sizeof(sin));
+
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons(server_port);
+	
+	sin.sin_addr.s_addr = server_addr;
 	
 	char *server_ip = cJSON_GetObjectItem(json, "The Server's IP Address")->valuestring;
 
 	//some address resolution
-	sin->sin_family = AF_INET;
-	sin->sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Port Number for TCP")));
-	sin->sin_addr.s_addr = inet_addr(server_ip);
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Port Number for TCP")));
+	sin.sin_addr.s_addr = inet_addr(server_ip);
 
 	iph->ihl = 5;
 	iph->version = 4;
@@ -103,11 +171,11 @@ char *setup_syn_packet(cJSON *json, bool low, struct sockaddr_in *sin) {
 	iph->ttl = 255;
 	iph->protocol = IPPROTO_TCP;
 	iph->check = 0;		//Set to 0 before calculating checksum
-	iph->saddr = inet_addr(server_ip);	//Spoof the source ip address
-	iph->daddr = sin->sin_addr.s_addr;
+	iph->saddr = inet_addr(cJSON_GetObjectItem(json, "The Client's IP Address")->valuestring);	//Spoof the source ip address
+	iph->daddr = sin.sin_addr.s_addr;
 
 	tcph->source = htons(1234);
-	tcph->dest = htons(80);
+	tcph->dest = htons(port);
 	tcph->seq = 0;
 	tcph->ack_seq = 0;
 	tcph->doff = 5;	//tcp header size
@@ -122,7 +190,7 @@ char *setup_syn_packet(cJSON *json, bool low, struct sockaddr_in *sin) {
 	tcph->urg_ptr = 0;
 
 	psh.source_address = inet_addr(server_ip);
-	psh.dest_address = sin->sin_addr.s_addr;
+	psh.dest_address = sin.sin_addr.s_addr;
 	psh.placeholder = 0;
 	psh.protocol = IPPROTO_TCP;
 	psh.tcp_length = htons(sizeof(struct tcphdr) + strlen(data));
@@ -135,48 +203,80 @@ char *setup_syn_packet(cJSON *json, bool low, struct sockaddr_in *sin) {
 
 	tcph->check = csum((unsigned short*) pseudogram , psize); // do the checksum and add it to the tcp header
 
+	if (sendto(sock, datagram, iph->tot_len, 0, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
+		perror("sendto failed");
+	} else {
+		printf("Packet Send. Length : %d \n" , iph->tot_len);
+	}
+
 	return datagram;
 }
 
-int main(int argc, char** argv) {
-    printf("hello\n");
+// int main(int argc, char** argv) {
+//     printf("hello\n");
 
-    char *file = readFile(argv[1]); // getting file params
-    if (file == 0) {
-        perror("Couldn't read file, please try again later.");
-        cleanExit();
-    }
+//     char *file = readFile(argv[1]); // getting file params
+//     if (file == 0) {
+//         perror("Couldn't read file, please try again later.");
+//         cleanExit();
+//     }
 
-    cJSON *json = cJSON_Parse(file);
+//     cJSON *json = cJSON_Parse(file);
 
 	
-    int raw_sock = socket(PF_INET, SOCK_RAW, IPPROTO_TCP);
-	if (raw_sock < 0) {
-		perror("something whent wrong");
-		return -1;
-	}
+//     int raw_sock = socket(PF_INET, SOCK_RAW, IPPROTO_TCP);
+// 	if (raw_sock < 0) {
+// 		perror("something whent wrong");
+// 		return -1;
+// 	}
 
-	int optval = 1;
-	if (setsockopt(raw_sock, IPPROTO_IP, IP_HDRINCL, &optval, sizeof (optval)) < 0) {
-		perror("Couldnt set socket option");
-		return -1;
-	}
+// 	int optval = 1;
+// 	if (setsockopt(raw_sock, IPPROTO_IP, IP_HDRINCL, &optval, sizeof (optval)) < 0) {
+// 		perror("Couldnt set socket option");
+// 		return -1;
+// 	}
 
+// 	// printf("%d\n", 
+// 	convert_to_binary(6000);
+// 	// [1]);
 
-    cJSON *ip = cJSON_GetObjectItem(json, "The Server’s IP Address");
-	printf("the server's IP address = %s\n", cJSON_GetObjectItem(json, "The Server's IP Address")->valuestring);
-
-    in_addr_t server_addr = inet_addr(ip->valuestring); 
-
-	struct sockaddr_in sin; 
-	memset(&sin, 0, sizeof(sin));
-
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train")));
+// 	// char *syn_one = send_syn(json, cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for TCP Head SYN")), raw_sock);
 	
-	sin.sin_addr.s_addr = server_addr;
+// 	// int udp_sock = setup_udp_socket(json);
 
-	char *syn_one = setup_syn_packet(json, cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for TCP Head SYN")), &sin);
-	// char *syn_two = setup_syn_packet(json, cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for TCP Tail SYN")), &sin);
+// 	// in_addr_t server_addr = inet_addr(cJSON_GetObjectItem(json, "The Server's IP Address")->valuestring); 
 
-}
+// 	// struct sockaddr_in udp_sin;
+//     // int addr_len = sizeof(udp_sin);
+
+//     // memset (&udp_sin, 0, sizeof (udp_sin));
+//     // udp_sin.sin_family = AF_INET; 
+//     // udp_sin.sin_addr.s_addr = server_addr; 
+//     // udp_sin.sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for UDP")));
+
+// 	// cJSON *payload_size = cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train");
+//     // int payload = cJSON_GetNumberValue(payload_size);
+//     // cJSON *train = cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train");
+//     // int train_len = cJSON_GetNumberValue(train);
+
+//     // for (int i = train_len-1; i >= 0; i--) { // LOW ENTROPY
+//     //     char *low = malloc(payload);
+//     //     char *num = convert_to_binary(i+1);
+
+//     //     strcpy(low, num);
+//     //     bzero((low + 32), cJSON_GetNumberValue(payload_size) - 32);
+//     //     int status = 0;
+//     //     if ((status = sendto(udp_sock, low, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
+//     //         printf("status = %d\n", status);
+//     //         printf("udp packet #%d failed to send\n", i+1);
+//     //         perror("failed to send packet");
+//     //         abort();
+//     //     }
+
+//     //     usleep(200);
+//     // }
+	
+// 	// char *syn_two = send_syn(json, cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for TCP Tail SYN")), raw_sock);
+
+	
+// }
