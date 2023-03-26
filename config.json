@@ -8,6 +8,6 @@
     "Port Number for TCP" : 7325,
     "The Size of the UDP Payload in the UDP Packet Train" : 1000,
     "Inter-Measurement Time" : 15,
-    "The Number of UDP Packets in the UDP Packet Train" : 6000,
+    "The Number of UDP Packets in the UDP Packet Train" : 300,
     "TTL for the UDP Packets" : 255
 }
