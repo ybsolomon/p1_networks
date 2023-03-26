@@ -20,6 +20,11 @@ void cleanExit() {
     exit(0);
 }
 
+struct packet_info {
+  short packet_id;
+  char *payload;
+};
+
 clock_t receive_udp(int sock, cJSON *json, struct sockaddr_in udp_sin) {
 
     int payload_size = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train"));
@@ -37,6 +42,12 @@ clock_t receive_udp(int sock, cJSON *json, struct sockaddr_in udp_sin) {
             printf("an error has occured with the UDP packet #%d\n", i+1);
             break;
         }
+
+        struct packet_info *info = (struct packet_info *) packet;
+        printf("current id = %d\n", info->packet_id);
+        // if (info->payload != NULL) {
+        //     printf("%s\n", info->payload);
+        // }
     }
 
     time = clock() - time;
@@ -181,7 +192,7 @@ int main(int argc, char *argv[]) {
         cleanExit(); 
     }
 
-    char *packet = abs((double) time_diff / (double) CLOCKS_PER_SEC) > 0.1 ? "There is compression between these two ports!\n" : "No compression detected!\n";
+    char *packet = abs((double) time_diff / (double) CLOCKS_PER_SEC) > 0.1 ? "There is compression between these two ports!" : "No compression detected!";
 
     if (send_packets(packet, strlen(packet), client_sock) < 0) {
         printf("Could not send compression results to client\n");
