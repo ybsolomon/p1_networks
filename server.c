@@ -26,7 +26,6 @@ struct packet_info {
 };
 
 clock_t receive_udp(int sock, cJSON *json, struct sockaddr_in udp_sin) {
-
     int payload_size = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train"));
     int train_len = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train"));
     char *packet = malloc(payload_size);
@@ -141,7 +140,7 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, cleanExit);
 
     if (argc != 2) {
-        printf("Usage: Please enter ONLY a port number.\n");
+        printf("Usage: ./server <port number>\n");
         cleanExit();
     }
 
