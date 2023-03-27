@@ -123,6 +123,12 @@ int main(int argc, char *argv[]) {
         abort(); 
     }
 
+    int ttl = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "TTL for the UDP Packets")); /* max = 255 */
+	if (setsockopt(udp_sock, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) < 0) {
+		perror("couldn't set TTL for UDP packets");
+		return -1;
+	}
+
     // low entropy
     cJSON *payload_size = cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train");
     int payload = cJSON_GetNumberValue(payload_size);
