@@ -54,6 +54,11 @@ char *allocate_strmem (int);
 uint8_t *allocate_ustrmem (int);
 int *allocate_intmem (int);
 
+struct packet_info {
+  short packet_id;
+  char *payload;
+};
+
 int send_packet(cJSON *json, int sd, bool head, struct sockaddr_in *sin) {
     int i, status, *ip_flags, *tcp_flags;
     char *src_ip, *dst_ip;
@@ -135,7 +140,7 @@ int send_packet(cJSON *json, int sd, bool head, struct sockaddr_in *sin) {
     // TCP header
 
     // Source port number (16 bits)
-    tcphdr.th_sport = htons(3001); // <-------- CHANGE THIS
+    tcphdr.th_sport = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Port Number for TCP"))); // <-------- CHANGE THIS
 
     // Destination port number (16 bits)
     if (head) {
@@ -199,26 +204,17 @@ int send_packet(cJSON *json, int sd, bool head, struct sockaddr_in *sin) {
     // Prepare packet.
     // First part is an IPv4 header.
     memcpy(packet, &iphdr, IP4_HDRLEN * sizeof (uint8_t));
-
-    // Next part of packet is upper layer protocol header.
     memcpy((packet + IP4_HDRLEN), &tcphdr, TCP_HDRLEN * sizeof (uint8_t));
-
-    // The kernel is going to prepare layer 2 information (ethernet frame header) for us.
-    // For that, we need to specify a destination for the kernel in order for it
-    // to decide where to send the raw datagram. We fill in a struct in_addr with
-    // the desired destination IP address, and pass this structure to the sendto() function.
+	
     memset(sin, 0, sizeof(struct sockaddr_in));
     sin->sin_family = AF_INET;
     sin->sin_addr.s_addr = iphdr.ip_dst.s_addr;
-    // sin->sin_port = 3001;
 
-    // Send packet.
     if (sendto (sd, packet, IP4_HDRLEN + TCP_HDRLEN, 0, (struct sockaddr *) sin, sizeof (struct sockaddr)) < 0)  {
       perror ("sendto() failed");
       return (EXIT_FAILURE);
     }
 
-    // Free allocated memory.
     free (packet);
     free (src_ip);
     free (dst_ip);
@@ -227,11 +223,6 @@ int send_packet(cJSON *json, int sd, bool head, struct sockaddr_in *sin) {
 
     return (EXIT_SUCCESS);
 }
-
-struct packet_info {
-  short packet_id;
-  char *payload;
-};
 
 char *convert_to_binary(int num) { // this makes a big endian string representation of the int
   int c, k;
@@ -418,276 +409,32 @@ int *allocate_intmem(int len) {
 }
 
 int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, struct sockaddr_in udp_sin, char *data) {
-  /* THIS IS FROM THE MAIN METHOD, DONT TOUCH UNTIL THIS METHOD WORKS 100% OF THE TIME 
-  if (argc < 2) {
-      printf("Usage: ./standalone <config file>");
-      exit(-1);
-    }
-
-    char *filename = argv[1];
-    char *file = readFile(filename); // getting file params
-    if (file == 0) {
-        perror("Couldn't read file, please try again later.");
-        return -1;
-    }
-
-    cJSON *json = cJSON_Parse(file);
-
-    int sock;
-    if ((sock = socket(AF_INET, SOCK_RAW, IPPROTO_TCP)) < 0) {
-        perror ("socket() failed to get socket descriptor for using ioctl() ");
-        exit (EXIT_FAILURE);
-    }
-
-    // Set flag so socket expects us to provide IPv4 header.
-    int optval = 1;
-    if (setsockopt (sock, IPPROTO_IP, IP_HDRINCL, &optval, sizeof (optval)) < 0) {
-        perror ("setsockopt() failed to set IP_HDRINCL");
-        exit (EXIT_FAILURE);
-    }
-
-    struct sockaddr_in sin;
-
-    if (send_packet(filename, json, sock, true, &sin) < 0) {
-        return -1;
-    }
-
-    int udp_sock = socket(AF_INET, SOCK_DGRAM, PF_UNSPEC);
-
-    cJSON *dst = cJSON_GetObjectItem(json, "Destination Port Number for UDP");
-    cJSON *ip = cJSON_GetObjectItem(json, "The Server's IP Address");
-
-    in_addr_t server_addr = inet_addr(ip->valuestring); 
-
-    struct sockaddr_in udp_sin;
-    int addr_len = sizeof(udp_sin);
-
-    memset (&udp_sin, 0, sizeof (udp_sin));
-    udp_sin.sin_family = AF_INET; 
-    udp_sin.sin_addr.s_addr = server_addr; 
-    udp_sin.sin_port = htons(cJSON_GetNumberValue(dst));
-
-    printf("port = %f\n", cJSON_GetNumberValue(dst));
-
-    if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
-        perror("couldn’t reuse UDP address");
-        abort(); 
-    }
-
-    printf("send the udp packets here\n");
-    cJSON *payload_size = cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train");
-    int payload = cJSON_GetNumberValue(payload_size);
-    cJSON *train = cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train");
-    int train_len = cJSON_GetNumberValue(train);
-
-    for (int i = 0; i < train_len; i++) { // LOW ENTROPY
-
-        struct packet_info *info = malloc(sizeof (struct packet_info));
-        info->packet_id = i;
-
-        char *low = malloc(payload);
-        char *num = convert_to_binary(i+1);
-
-        strcpy(low, num);
-        bzero((low + 2), cJSON_GetNumberValue(payload_size) - 2);
-        int status = 0;
-        if ((status = sendto(udp_sock, info, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
-            printf("status = %d\n", status);
-            printf("udp packet #%d failed to send\n", i+1);
-            perror("failed to send packet");
-            abort();
-        }
-
-        usleep(200);
-    }
-
-    if (send_packet(filename, json, sock, false, &sin) < 0) {
-        return -1;
-    }
-
-    clock_t time;
-
-    while (1) {
-        char *packet = malloc(2048);
-
-        if (recvfrom(sock, packet, 2048, 0, (struct sockaddr *) &sin, &addr_len) < 0) {
-            printf("an error has occured while getting RST packet\n");
-            return -1;
-        }
-
-        struct iphdr *iph = (struct iphdr *) packet;
-        struct tcphdr *tcph = (struct tcphdr *) (packet + IP4_HDRLEN);
-
-        if (tcph->th_dport == htons(3001)) {
-          uint16_t flags = ntohs(tcph->th_flags);
-          printf("%d\n", flags);
-          if (tcph->th_flags & TH_RST) {
-            printf("rst\n");
-          }
-
-          printf("packet = %d\n", (tcph->th_flags & (1 << 4)) >> 4);
-          // printf("packet flags = %s\n", convert_to_binary(tcph->th_flags));
-          time = clock();
-          break;
-        }
-    }
-
-    while (1) {
-        char *packet = malloc(2048);
-
-        if (recvfrom(sock, packet, 2048, 0, (struct sockaddr *) &sin, &addr_len) < 0) {
-            printf("an error has occured while getting RST packet\n");
-            return -1;
-        }
-
-        struct iphdr *iph = (struct iphdr *) packet;
-        struct tcphdr *tcph = (struct tcphdr *) (packet + IP4_HDRLEN);
-
-        if (tcph->th_dport == htons(3001)) {
-          uint16_t flags = ntohs(tcph->th_flags);
-          printf("%d\n", flags);
-          if (tcph->th_flags & TH_RST) {
-            printf("rst\n");
-          }
-
-          printf("packet = %d\n", (tcph->th_flags & (1 << 4)) >> 4);
-          // printf("packet flags = %s\n", convert_to_binary(tcph->th_flags));
-          time = clock() - time;
-          break;
-        }
-    }
-    
-
-    printf("time diff = %ld\n", time);
-
-
-    int wait = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time"));
-
-    printf("waiting %d seconds to send packets\n", wait);
-    sleep(wait);
-    printf("time to send! \n");
-
-
-    char *data = readFile("h_entropy");
-    if (data == 0){
-        perror("Couldn't read entropy file, please try again later.");
-        return -1;
-    }
-
-    // short num = 1200;
-
-    clock_t time_2;
-
-    if (send_packet(filename, json, sock, true, &sin) < 0) {
-        return -1;
-    }
-
-    // printf("short = %s\n", (unsigned char *) num);
-
-    for (int i = 0; i < train_len; i++) { // HIGH ENTROPY
-        char *high = malloc(payload);
-        char *num = convert_to_binary(i+1);
-
-        strcpy(high, num);
-        strncat(high, data, payload - 33);
-        
-        int status = 0;
-        if ((status = sendto(udp_sock, high, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
-            printf("status = %d\n", status);
-            printf("udp packet #%d failed to send\n", i+1);
-            perror("failed to send packet");
-            abort();
-        }
-        usleep(200);
-    }
-
-    if (send_packet(filename, json, sock, false, &sin) < 0) {
-        return -1;
-    }
-
-    while (1) {
-        char *packet = malloc(2048);
-
-        if (recvfrom(sock, packet, 2048, 0, (struct sockaddr *) &sin, &addr_len) < 0) {
-            printf("an error has occured while getting RST packet\n");
-            return -1;
-        }
-
-        struct iphdr *iph = (struct iphdr *) packet;
-        struct tcphdr *tcph = (struct tcphdr *) (packet + IP4_HDRLEN);
-
-        if (tcph->th_dport == htons(3001)) {
-          uint16_t flags = ntohs(tcph->th_flags);
-          printf("%d\n", flags);
-          if (tcph->th_flags & TH_RST) {
-            printf("rst\n");
-          }
-
-          printf("packet = %d\n", (tcph->th_flags & (1 << 4)) >> 4);
-          // printf("packet flags = %s\n", convert_to_binary(tcph->th_flags));
-          time_2 = clock();
-          break;
-        }
-    }
-
-    while (1) {
-        char *packet = malloc(2048);
-
-        if (recvfrom(sock, packet, 2048, 0, (struct sockaddr *) &sin, &addr_len) < 0) {
-            printf("an error has occured while getting RST packet\n");
-            return -1;
-        }
-
-        struct iphdr *iph = (struct iphdr *) packet;
-        struct tcphdr *tcph = (struct tcphdr *) (packet + IP4_HDRLEN);
-
-        if (tcph->th_dport == htons(3001)) {
-          uint16_t flags = ntohs(tcph->th_flags);
-          printf("%d\n", flags);
-          if (tcph->th_flags & TH_RST) {
-            printf("rst\n");
-          }
-
-          printf("packet = %d\n", (tcph->th_flags & (1 << 4)) >> 4);
-          // printf("packet flags = %s\n", convert_to_binary(tcph->th_flags));
-          time_2 = clock() - time_2;
-          break;
-        }
-    }
-
-    printf("final diff = %d\n", abs(time - time_2));
-
-    // printf("AT THE END\n");
-  */
 	int train_len = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train"));
 	int payload_len = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train"));
 	if (send_packet(json, tcp_sock, true, &sin) < 0) {
 		return -1;
 	}
 
-	fd_set readfds, writefds;
+	int rsts = 0;
 	int maxfd, retval;
-	char buffer[1024];
+	int i = train_len - 1;
+	int addr_len = sizeof(udp_sin);
+
+	clock_t rst_times[2];
+	char buffer[payload_len];
+	fd_set readfds, writefds;
 
 	struct timeval tv;
 	tv.tv_sec = 5;
 	tv.tv_usec = 0;
 
-
-	int addr_len = sizeof(udp_sin);
-	int i = 0;
-	clock_t rst_times[2];
-	int rsts = 0;
-
-	while (1) {
-		// initialize the file descriptor sets
+	while (rsts < 2) {
 		FD_ZERO(&readfds);
 		FD_ZERO(&writefds);
 		FD_SET(tcp_sock, &readfds);
 		FD_SET(udp_sock, &writefds);
 		maxfd = (tcp_sock > udp_sock) ? tcp_sock : udp_sock;
 
-		// call select with a 5-second timeout
 		retval = select(maxfd + 1, &readfds, &writefds, NULL, &tv);
 
 		if (retval == -1) {
@@ -695,11 +442,8 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 		} else if (retval == 0) {
 			printf("Timeout\n");
 		} else {
-			// check if the receive socket is ready for reading
 			if (FD_ISSET(tcp_sock, &readfds)) {
-				// char *packet = malloc(2048);
-
-				if (recvfrom(tcp_sock, buffer, sizeof(buffer), 0, (struct sockaddr *) &sin, &addr_len) < 0) {
+				if (recvfrom(tcp_sock, buffer, payload_len, 0, (struct sockaddr *) &sin, &addr_len) < 0) {
 					printf("an error has occured while getting RST packet\n");
 					return -1;
 				}
@@ -707,21 +451,17 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 				struct iphdr *iph = (struct iphdr *) buffer;
 				struct tcphdr *tcph = (struct tcphdr *) (buffer + IP4_HDRLEN);
 
-				if (tcph->th_dport == htons(3001)) {
+				if (tcph->th_dport == htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Port Number for TCP")))) {
 					if (tcph->th_flags & TH_RST) {
 						printf("found rst\n");
 						rst_times[rsts++] = clock();
-
-						if (rsts == 2) {
-							break; // FOUND BOTH RST PACKETS
-						}
 					}
 				}
 			}
 
-			if (FD_ISSET(udp_sock, &writefds) && i < train_len) {
+			if (i >= 0 && FD_ISSET(udp_sock, &writefds)) {
 				struct packet_info *info = malloc(sizeof(struct packet_info));
-				info->packet_id = i;
+				info->packet_id = i--;
 				info->payload = malloc(payload_len-2);
 
 				if (data) {
@@ -737,11 +477,10 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 					perror("failed to send packet");
 					return -1;
 				}
-				i++;
 				
 				usleep(200);
-			} else if (i++ == train_len) {
-				if (send_packet(json, tcp_sock, true, &sin) < 0) {
+			} else if (i-- == -1) {
+				if (send_packet(json, tcp_sock, false, &sin) < 0) {
 					printf("couldn't send the final TCP packet\n");
 					return -1;
 				}
@@ -754,7 +493,7 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-      printf("Usage: ./standalone <config file>");
+      printf("Usage: sudo ./standalone <config file>");
       exit(-1);
     }
 
@@ -767,25 +506,25 @@ int main(int argc, char **argv) {
 
     cJSON *json = cJSON_Parse(file);
 
-    int sock;
-    if ((sock = socket(AF_INET, SOCK_RAW, IPPROTO_TCP)) < 0) {
+    int tcp_sock;
+    if ((tcp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_TCP)) < 0) {
         perror ("socket() failed to get socket descriptor for using ioctl() ");
         exit (EXIT_FAILURE);
     }
 
     // Set flag so socket expects us to provide IPv4 header.
     int optval = 1;
-    if (setsockopt (sock, IPPROTO_IP, IP_HDRINCL, &optval, sizeof (optval)) < 0) {
+    if (setsockopt (tcp_sock, IPPROTO_IP, IP_HDRINCL, &optval, sizeof (optval)) < 0) {
         perror ("setsockopt() failed to set IP_HDRINCL");
         exit (EXIT_FAILURE);
     }
 
+    cJSON *dst = cJSON_GetObjectItem(json, "Destination Port Number for UDP");
+    cJSON *ip = cJSON_GetObjectItem(json, "The Server's IP Address");
+
     struct sockaddr_in sin;
 
     int udp_sock = socket(AF_INET, SOCK_DGRAM, PF_UNSPEC);
-
-    cJSON *dst = cJSON_GetObjectItem(json, "Destination Port Number for UDP");
-    cJSON *ip = cJSON_GetObjectItem(json, "The Server's IP Address");
 
     in_addr_t server_addr = inet_addr(ip->valuestring); 
 
@@ -804,12 +543,18 @@ int main(int argc, char **argv) {
         abort(); 
     }
 
-	int low_entropy;
-	if ((low_entropy = send_recv(json, sock, udp_sock, sin, udp_sin, NULL)) < 0) {
+	int ttl = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "TTL for the UDP Packets")); /* max = 255 */
+	if (setsockopt(udp_sock, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) < 0) {
+		perror("couldn't set TTL for UDP packets");
 		return -1;
 	}
 
-	printf("low entropy time = %f\n", low_entropy / (double) CLOCKS_PER_SEC);
+	int low_entropy;
+	if ((low_entropy = send_recv(json, tcp_sock, udp_sock, sin, udp_sin, NULL)) < 0) {
+		return -1;
+	}
+
+	printf("low entropy time = %f\n", low_entropy / (double) CLOCKS_PER_SEC * 1000);
 
 	char *data = readFile("h_entropy");
     if (data == 0){
@@ -818,206 +563,17 @@ int main(int argc, char **argv) {
     }
 
 	int high_entropy;
-	if ((high_entropy = send_recv(json, sock, udp_sock, sin, udp_sin, data)) < 0) {
+	if ((high_entropy = send_recv(json, tcp_sock, udp_sock, sin, udp_sin, data)) < 0) {
 		return -1;
 	}
 
-	printf("high entropy time = %f\n", high_entropy / (double) CLOCKS_PER_SEC);
+	printf("high entropy time = %f\n", high_entropy / (double) CLOCKS_PER_SEC * 1000);
 
 	int time_diff = high_entropy - low_entropy;
-	char *packet = abs((double) time_diff / (double) CLOCKS_PER_SEC) > 0.1 ? "There is compression between these two ports!" : "No compression detected!";
+	char *stat = abs((double) time_diff / (double) CLOCKS_PER_SEC) > 0.1 ? "There is compression between these two ports!" : "No compression detected!";
 	
-	printf("%s\n", packet);
-	/*
-    // printf("send the udp packets here\n");
-    // cJSON *payload_size = cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train");
-    // int payload = cJSON_GetNumberValue(payload_size);
-    // cJSON *train = cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train");
-    // int train_len = cJSON_GetNumberValue(train);
-
-    // if (send_packet(json, sock, true, &sin) < 0) {
-    //     return -1;
-    // }
-
-    // for (int i = 0; i < train_len; i++) { // LOW ENTROPY
-
-    //     struct packet_info *info = malloc(sizeof (struct packet_info));
-    //     info->packet_id = i;
-
-    //     char *low = malloc(payload);
-    //     char *num = convert_to_binary(i+1);
-
-    //     strcpy(low, num);
-    //     bzero((low + 2), cJSON_GetNumberValue(payload_size) - 2);
-    //     int status = 0;
-    //     if ((status = sendto(udp_sock, info, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
-    //         printf("status = %d\n", status);
-    //         printf("udp packet #%d failed to send\n", i+1);
-    //         perror("failed to send packet");
-    //         abort();
-    //     }
-
-    //     usleep(200);
-    // }
-
-    // if (send_packet(json, sock, false, &sin) < 0) {
-    //     return -1;
-    // }
-
-    // clock_t time;
-
-    // while (1) {
-    //     char *packet = malloc(2048);
-
-    //     if (recvfrom(sock, packet, 2048, 0, (struct sockaddr *) &sin, &addr_len) < 0) {
-    //         printf("an error has occured while getting RST packet\n");
-    //         return -1;
-    //     }
-
-    //     struct iphdr *iph = (struct iphdr *) packet;
-    //     struct tcphdr *tcph = (struct tcphdr *) (packet + IP4_HDRLEN);
-
-    //     if (tcph->th_dport == htons(3001)) {
-    //       uint16_t flags = ntohs(tcph->th_flags);
-    //       printf("%d\n", flags);
-    //       if (tcph->th_flags & TH_RST) {
-    //         printf("rst\n");
-    //       }
-
-    //       printf("packet = %d\n", (tcph->th_flags & (1 << 4)) >> 4);
-    //       // printf("packet flags = %s\n", convert_to_binary(tcph->th_flags));
-    //       time = clock();
-    //       break;
-    //     }
-    // }
-
-    // while (1) {
-    //     char *packet = malloc(2048);
-
-    //     if (recvfrom(sock, packet, 2048, 0, (struct sockaddr *) &sin, &addr_len) < 0) {
-    //         printf("an error has occured while getting RST packet\n");
-    //         return -1;
-    //     }
-
-    //     struct iphdr *iph = (struct iphdr *) packet;
-    //     struct tcphdr *tcph = (struct tcphdr *) (packet + IP4_HDRLEN);
-
-    //     if (tcph->th_dport == htons(3001)) {
-    //       uint16_t flags = ntohs(tcph->th_flags);
-    //       printf("%d\n", flags);
-    //       if (tcph->th_flags & TH_RST) {
-    //         printf("rst\n");
-    //       }
-
-    //       printf("packet = %d\n", (tcph->th_flags & (1 << 4)) >> 4);
-    //       // printf("packet flags = %s\n", convert_to_binary(tcph->th_flags));
-    //       time = clock() - time;
-    //       break;
-    //     }
-    // }
-    
-
-    // printf("time diff = %ld\n", time);
-
-
-    // int wait = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time"));
-
-    // printf("waiting %d seconds to send packets\n", wait);
-    // sleep(wait);
-    // printf("time to send! \n");
-
-
-    // char *data = readFile("h_entropy");
-    // if (data == 0){
-    //     perror("Couldn't read entropy file, please try again later.");
-    //     return -1;
-    // }
-
-    // // short num = 1200;
-
-    // clock_t time_2;
-
-    // if (send_packet(json, sock, true, &sin) < 0) {
-    //     return -1;
-    // }
-
-    // // printf("short = %s\n", (unsigned char *) num);
-
-    // for (int i = 0; i < train_len; i++) { // HIGH ENTROPY
-    //     char *high = malloc(payload);
-    //     char *num = convert_to_binary(i+1);
-
-    //     strcpy(high, num);
-    //     strncat(high, data, payload - 33);
-        
-    //     int status = 0;
-    //     if ((status = sendto(udp_sock, high, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
-    //         printf("status = %d\n", status);
-    //         printf("udp packet #%d failed to send\n", i+1);
-    //         perror("failed to send packet");
-    //         abort();
-    //     }
-    //     usleep(200);
-    // }
-
-    // if (send_packet(json, sock, false, &sin) < 0) {
-    //     return -1;
-    // }
-
-    // while (1) {
-    //     char *packet = malloc(2048);
-
-    //     if (recvfrom(sock, packet, 2048, 0, (struct sockaddr *) &sin, &addr_len) < 0) {
-    //         printf("an error has occured while getting RST packet\n");
-    //         return -1;
-    //     }
-
-    //     struct iphdr *iph = (struct iphdr *) packet;
-    //     struct tcphdr *tcph = (struct tcphdr *) (packet + IP4_HDRLEN);
-
-    //     if (tcph->th_dport == htons(3001)) {
-    //       uint16_t flags = ntohs(tcph->th_flags);
-    //       printf("%d\n", flags);
-    //       if (tcph->th_flags & TH_RST) {
-    //         printf("rst\n");
-    //       }
-
-    //       printf("packet = %d\n", (tcph->th_flags & (1 << 4)) >> 4);
-    //       // printf("packet flags = %s\n", convert_to_binary(tcph->th_flags));
-    //       time_2 = clock();
-    //       break;
-    //     }
-    // }
-
-    // while (1) {
-    //     char *packet = malloc(2048);
-
-    //     if (recvfrom(sock, packet, 2048, 0, (struct sockaddr *) &sin, &addr_len) < 0) {
-    //         printf("an error has occured while getting RST packet\n");
-    //         return -1;
-    //     }
-
-    //     struct iphdr *iph = (struct iphdr *) packet;
-    //     struct tcphdr *tcph = (struct tcphdr *) (packet + IP4_HDRLEN);
-
-    //     if (tcph->th_dport == htons(3001)) {
-    //       uint16_t flags = ntohs(tcph->th_flags);
-    //       printf("%d\n", flags);
-    //       if (tcph->th_flags & TH_RST) {
-    //         printf("rst\n");
-    //       }
-
-    //       printf("packet = %d\n", (tcph->th_flags & (1 << 4)) >> 4);
-    //       // printf("packet flags = %s\n", convert_to_binary(tcph->th_flags));
-    //       time_2 = clock() - time_2;
-    //       break;
-    //     }
-    // }
-
-    // printf("final diff = %d\n", abs(time - time_2));
-
-    // printf("AT THE END\n");
-	*/
-    close(sock);
+	printf("%s\n", stat);
+	
+    close(tcp_sock);
 	close(udp_sock);
 }
