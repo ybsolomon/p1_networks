@@ -7,4 +7,4 @@ client: client.c util.c cJSON/cJSON.c
 	gcc -g -o client client.c util.c cJSON/cJSON.c
 
 standalone: standalone.c util.c cJSON/cJSON.c tcp4.c
-	gcc -g -o standalone standalone.c tcp4.c util.c cJSON/cJSON.c
+	gcc -g -o standalone standalone.c util.c cJSON/cJSON.c
