@@ -107,27 +107,34 @@ int main(int argc, char *argv[]) {
 
     in_addr_t server_addr = inet_addr(ip->valuestring); 
 
-    struct sockaddr_in udp_sin;
-    int addr_len = sizeof(udp_sin);
+    struct sockaddr_in dst_sin;
+    int addr_len = sizeof(dst_sin);
 
-    memset (&udp_sin, 0, sizeof (udp_sin));
-    udp_sin.sin_family = AF_INET; 
-    udp_sin.sin_addr.s_addr = server_addr; 
-    udp_sin.sin_port = htons(cJSON_GetNumberValue(dst));
+    memset (&dst_sin, 0, sizeof (dst_sin));
+    dst_sin.sin_family = AF_INET; 
+    dst_sin.sin_addr.s_addr = server_addr; 
+    dst_sin.sin_port = htons(cJSON_GetNumberValue(dst));
 
     printf("port = %f\n", cJSON_GetNumberValue(dst));
 
     int optval = 1;
     if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
-        perror("couldn’t reuse UDP address");
+        perror("couldn't reuse UDP address");
         abort(); 
     }
 
-    int ttl = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "TTL for the UDP Packets")); /* max = 255 */
-	if (setsockopt(udp_sock, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) < 0) {
-		perror("couldn't set TTL for UDP packets");
-		return -1;
-	}
+    /* Source addr struct */
+    struct sockaddr_in src_sin;
+
+    memset (&src_sin, 0, sizeof (src_sin));
+    src_sin.sin_family = AF_INET; 
+    src_sin.sin_addr.s_addr = inet_addr(cJSON_GetObjectItem(json, "The Client's IP Address")->valuestring); 
+    src_sin.sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Source Port Number for UDP")));
+
+    if (bind(udp_sock, (struct sockaddr *) &src_sin, sizeof (src_sin)) < 0) {
+        perror("Could not bind to given source UDP address.");
+        return -1;
+    }
 
     // low entropy
     cJSON *payload_size = cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train");
@@ -138,10 +145,11 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < train_len; i++) { // LOW ENTROPY
         struct packet_info *info = malloc(sizeof(struct packet_info));
         info->packet_id = i;
+		info->payload = malloc(payload-2);
 
-        bzero((info + 2), cJSON_GetNumberValue(payload_size) - 2);
+        bzero(info->payload, cJSON_GetNumberValue(payload_size) - 2);
         int status = 0;
-        if ((status = sendto(udp_sock, info, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
+        if ((status = sendto(udp_sock, info, payload, 0, (struct sockaddr *) &dst_sin, sizeof(dst_sin))) < 0) {
             printf("status = %d\n", status);
             printf("udp packet #%d failed to send\n", i+1);
             perror("failed to send packet");
@@ -171,7 +179,7 @@ int main(int argc, char *argv[]) {
         strncpy(info->payload, data, payload-2);
         
         int status = 0;
-        if ((status = sendto(udp_sock, info, payload, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
+        if ((status = sendto(udp_sock, info, payload, 0, (struct sockaddr *) &dst_sin, sizeof(dst_sin))) < 0) {
             printf("status = %d\n", status);
             printf("udp packet #%d failed to send\n", i+1);
             perror("failed to send packet");
