@@ -28,8 +28,11 @@
 #define TCP_HDRLEN 20         // TCP header length, excludes options data
 
 // Function prototypes
+
+/* Got the checksum functions from https://www.pdbuchan.com/rawsock/tcp4.c */
 uint16_t checksum (uint16_t *, int);
 uint16_t tcp4_checksum(struct ip, struct tcphdr);
+
 char *allocate_strmem (int);
 uint8_t *allocate_ustrmem (int);
 int *allocate_intmem (int);
@@ -245,7 +248,7 @@ uint16_t checksum(uint16_t *addr, int len) {
     return (answer);
 }
 
-  // Build IPv4 TCP pseudo-header and call checksum function.
+// Build IPv4 TCP pseudo-header and call checksum function.
 uint16_t tcp4_checksum(struct ip iphdr, struct tcphdr tcphdr) {
     uint16_t svalue;
     char buf[IP_MAXPACKET], cvalue;
@@ -331,7 +334,6 @@ uint16_t tcp4_checksum(struct ip iphdr, struct tcphdr tcphdr) {
     return checksum ((uint16_t *) buf, chksumlen);
 }
 
-// Allocate memory for an array of chars.
 char *allocate_strmem(int len) {
     void *tmp;
 
@@ -350,7 +352,6 @@ char *allocate_strmem(int len) {
     }
 }
 
-// Allocate memory for an array of unsigned chars.
 uint8_t *allocate_ustrmem(int len) {
     void *tmp;
 
@@ -369,7 +370,6 @@ uint8_t *allocate_ustrmem(int len) {
     }
 }
 
-// Allocate memory for an array of ints.
 int *allocate_intmem(int len) {
     void *tmp;
 
@@ -514,7 +514,7 @@ int main(int argc, char **argv) {
     memset (&udp_sin, 0, sizeof (udp_sin));
     udp_sin.sin_family = AF_INET; 
     udp_sin.sin_addr.s_addr = server_addr; 
-    udp_sin.sin_port = htons(9999);
+    udp_sin.sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for UDP")));
 
     if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
         perror("couldn't reuse UDP address");
@@ -527,54 +527,49 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 
-	struct packet_info *info = malloc(sizeof(struct packet_info));
-	info->packet_id = 0;
-	info->payload = malloc(1000-2);
+	/* Source addr struct */
+    struct sockaddr_in src_sin;
 
-	// if (data) {
-	// 	strncpy(info->payload, data, payload_len-2);
-	// } else {
-		bzero(info->payload, 998);
-	// }
-	
-	int status = 0;
-	if ((status = sendto(udp_sock, info, 1000, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
-		printf("status = %d\n", status);
-		printf("udp packet #%d failed to send\n", 1);
-		perror("failed to send packet");
+    memset (&src_sin, 0, sizeof (src_sin));
+    src_sin.sin_family = AF_INET; 
+    src_sin.sin_addr.s_addr = inet_addr(cJSON_GetObjectItem(json, "The Client's IP Address")->valuestring); 
+    src_sin.sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Source Port Number for UDP")));
+
+    if (bind(udp_sock, (struct sockaddr *) &src_sin, sizeof (src_sin)) < 0) {
+        perror("Could not bind to given source UDP address.");
+        return -1;
+    }
+
+	int low_entropy;
+	if ((low_entropy = send_recv(json, tcp_sock, udp_sock, sin, udp_sin, NULL)) < 0) {
 		return -1;
 	}
 
-	// int low_entropy;
-	// if ((low_entropy = send_recv(json, tcp_sock, udp_sock, sin, udp_sin, NULL)) < 0) {
-	// 	return -1;
-	// }
+	printf("low entropy time = %.0fms\n", low_entropy / (double) CLOCKS_PER_SEC * 1000);
 
-	// printf("low entropy time = %.0fms\n", low_entropy / (double) CLOCKS_PER_SEC * 1000);
+	char *data = readFile("h_entropy");
+    if (data == 0){
+        perror("Couldn't read entropy file, please try again later.");
+        return -1;
+    }
 
-	// char *data = readFile("h_entropy");
-    // if (data == 0){
-    //     perror("Couldn't read entropy file, please try again later.");
-    //     return -1;
-    // }
+	int wait = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time"));
 
-	// int wait = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time"));
+    printf("waiting %d seconds\n", wait);
+    sleep(wait);
+    printf("sending high entropy packets! \n");
 
-    // printf("waiting %d seconds\n", wait);
-    // sleep(wait);
-    // printf("sending high entropy packets! \n");
+	int high_entropy;
+	if ((high_entropy = send_recv(json, tcp_sock, udp_sock, sin, udp_sin, data)) < 0) {
+		return -1;
+	}
 
-	// int high_entropy;
-	// if ((high_entropy = send_recv(json, tcp_sock, udp_sock, sin, udp_sin, data)) < 0) {
-	// 	return -1;
-	// }
+	printf("high entropy time = %.0fms\n", high_entropy / (double) CLOCKS_PER_SEC * 1000);
 
-	// printf("high entropy time = %.0fms\n", high_entropy / (double) CLOCKS_PER_SEC * 1000);
-
-	// int time_diff = high_entropy - low_entropy;
-	// char *stat = abs((double) time_diff / (double) CLOCKS_PER_SEC) > 0.1 ? "There is compression between these two ports!" : "No compression detected!";
+	int time_diff = high_entropy - low_entropy;
+	char *stat = abs((double) time_diff / (double) CLOCKS_PER_SEC) > 0.1 ? "There is compression between these two ports!" : "No compression detected!";
 	
-	// printf("%s\n", stat);
+	printf("%s\n", stat);
 	
     close(tcp_sock);
 	close(udp_sock);
