@@ -23,24 +23,29 @@ struct packet_info {
   char *payload;
 };
 
-char *convert_to_binary(int num) { // this makes a big endian string representation of the int
-    int c, k;
-    char *num_str = malloc(32);
+int send_udp(int train_len, int payload_len, int udp_sock, struct sockaddr_in udp_sin, char *data) {
+    for (int i = 0; i < train_len; i++) {
+        struct packet_info *info = malloc(sizeof(struct packet_info));
+        info->packet_id = i;
+        info->payload = malloc(payload_len-2);
 
-    for (c = 31; c >= 0; c--) {
-        k = num >> c; // getting bit value
-
-        if (k & 1) {
-            *(num_str + 31 - c) = '1';
+        if (data) {
+            strncpy(info->payload, data, payload_len-2);
         } else {
-            *(num_str + 31 - c) = '0';
+            bzero(info->payload, payload_len-2);
         }
+        
+        int status = 0;
+        if ((status = sendto(udp_sock, info, payload_len, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
+            printf("status = %d\n", status);
+            printf("udp packet #%d failed to send\n", i+1);
+            perror("failed to send packet");
+            return -1;
+        }
+        
+        usleep(200);
     }
 
-    return num_str;
-}
-
-int send_udp(int train_len, int payload_size, int sock) {
     return 0;
 }
 
@@ -64,13 +69,12 @@ int setup_socket(int sock, struct sockaddr_in *sin, cJSON *json) {
     return 0;
 }
 
-// ./client config.json
 int main(int argc, char *argv[]) {
-    signal(SIGTERM, cleanExit); // clean exits only
+    signal(SIGTERM, cleanExit);
     signal(SIGINT, cleanExit);
 
     if (argc != 2) {
-        printf("Usage: Please enter the path to the config file.");
+        printf("Usage: ./client <config file>");
         cleanExit();
     }
 
@@ -82,7 +86,6 @@ int main(int argc, char *argv[]) {
 
     int sock = socket(AF_INET, SOCK_STREAM, PF_UNSPEC);
 
-    // do some json parsing here
     cJSON *json = cJSON_Parse(file);
 
     struct sockaddr_in sin;
@@ -142,21 +145,8 @@ int main(int argc, char *argv[]) {
     cJSON *train = cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train");
     int train_len = cJSON_GetNumberValue(train);
 
-    for (int i = 0; i < train_len; i++) { // LOW ENTROPY
-        struct packet_info *info = malloc(sizeof(struct packet_info));
-        info->packet_id = i;
-		info->payload = malloc(payload-2);
-
-        bzero(info->payload, cJSON_GetNumberValue(payload_size) - 2);
-        int status = 0;
-        if ((status = sendto(udp_sock, info, payload, 0, (struct sockaddr *) &dst_sin, sizeof(dst_sin))) < 0) {
-            printf("status = %d\n", status);
-            printf("udp packet #%d failed to send\n", i+1);
-            perror("failed to send packet");
-            abort();
-        }
-
-        usleep(200);
+    if (send_udp(train_len, payload, udp_sock, dst_sin, NULL) < 0) { // low entropy packets here
+        cleanExit();
     }
 
     int wait = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time"));
@@ -165,27 +155,14 @@ int main(int argc, char *argv[]) {
     sleep(wait);
     printf("time to send! \n");
 
-
     char *data = readFile("h_entropy");
     if (data == 0){
         perror("Couldn't read entropy file, please try again later.");
         cleanExit();
     }
 
-    for (int i = 0; i < train_len; i++) { // HIGH ENTROPY
-        struct packet_info *info = malloc(sizeof(struct packet_info));
-        info->packet_id = i;
-        info->payload = malloc(payload-2);
-        strncpy(info->payload, data, payload-2);
-        
-        int status = 0;
-        if ((status = sendto(udp_sock, info, payload, 0, (struct sockaddr *) &dst_sin, sizeof(dst_sin))) < 0) {
-            printf("status = %d\n", status);
-            printf("udp packet #%d failed to send\n", i+1);
-            perror("failed to send packet");
-            abort();
-        }
-        usleep(200);
+    if (send_udp(train_len, payload, udp_sock, dst_sin, data) < 0) { // low entropy packets here
+        cleanExit();
     }
 
     sock = socket(AF_INET, SOCK_STREAM, PF_UNSPEC);
@@ -200,7 +177,7 @@ int main(int argc, char *argv[]) {
         cleanExit();
     }
 
-    printf("Result: %s\n", buf);
+    printf("Result: %s\n", buf + 5);
 
     free(buf);
     free(json);
