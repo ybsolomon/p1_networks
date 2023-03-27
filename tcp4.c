@@ -1,23 +1,3 @@
-/*  Copyright (C) 2011-2015  P.D. Buchan (pdbuchan@yahoo.com)
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-// Send an IPv4 TCP packet via raw socket.
-// Stack fills out layer 2 (data link) information (MAC addresses) for us.
-// Values set for SYN packet, no TCP options data.
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>           // close()
@@ -512,7 +492,6 @@ int main(int argc, char **argv) {
         exit (EXIT_FAILURE);
     }
 
-    // Set flag so socket expects us to provide IPv4 header.
     int optval = 1;
     if (setsockopt (tcp_sock, IPPROTO_IP, IP_HDRINCL, &optval, sizeof (optval)) < 0) {
         perror ("setsockopt() failed to set IP_HDRINCL");
@@ -539,7 +518,7 @@ int main(int argc, char **argv) {
     printf("port = %f\n", cJSON_GetNumberValue(dst));
 
     if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
-        perror("couldn’t reuse UDP address");
+        perror("couldn't reuse UDP address");
         abort(); 
     }
 
@@ -554,7 +533,7 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 
-	printf("low entropy time = %f\n", low_entropy / (double) CLOCKS_PER_SEC * 1000);
+	printf("low entropy time = %.0fms\n", low_entropy / (double) CLOCKS_PER_SEC * 1000);
 
 	char *data = readFile("h_entropy");
     if (data == 0){
@@ -562,12 +541,18 @@ int main(int argc, char **argv) {
         return -1;
     }
 
+	int wait = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time"));
+
+    printf("waiting %d seconds\n", wait);
+    sleep(wait);
+    printf("sending high entropy packets! \n");
+
 	int high_entropy;
 	if ((high_entropy = send_recv(json, tcp_sock, udp_sock, sin, udp_sin, data)) < 0) {
 		return -1;
 	}
 
-	printf("high entropy time = %f\n", high_entropy / (double) CLOCKS_PER_SEC * 1000);
+	printf("high entropy time = %.0fms\n", high_entropy / (double) CLOCKS_PER_SEC * 1000);
 
 	int time_diff = high_entropy - low_entropy;
 	char *stat = abs((double) time_diff / (double) CLOCKS_PER_SEC) > 0.1 ? "There is compression between these two ports!" : "No compression detected!";
