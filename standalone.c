@@ -420,7 +420,8 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 		if (retval == -1) {
 			perror("select");
 		} else if (retval == 0) {
-			printf("Timeout\n");
+			printf("Timed out. Failed to detect due to insufficient information.\n");
+			exit(EXIT_FAILURE);
 		} else {
 			if (FD_ISSET(tcp_sock, &readfds)) {
 				if (recvfrom(tcp_sock, buffer, payload_len, 0, (struct sockaddr *) &sin, &addr_len) < 0) {
@@ -445,9 +446,9 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 				info->payload = malloc(payload_len-2);
 
 				if (data) {
-					strncpy(info->payload, data, payload_len-3);
+					strncpy(info->payload, data, payload_len-2);
 				} else {
-					bzero(info->payload, payload_len-3);
+					bzero(info->payload, payload_len-2);
 				}
 				
 				int status = 0;
@@ -513,9 +514,7 @@ int main(int argc, char **argv) {
     memset (&udp_sin, 0, sizeof (udp_sin));
     udp_sin.sin_family = AF_INET; 
     udp_sin.sin_addr.s_addr = server_addr; 
-    udp_sin.sin_port = htons(cJSON_GetNumberValue(dst));
-
-    printf("port = %f\n", cJSON_GetNumberValue(dst));
+    udp_sin.sin_port = htons(9999);
 
     if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
         perror("couldn't reuse UDP address");
@@ -528,36 +527,54 @@ int main(int argc, char **argv) {
 		return -1;
 	}
 
-	int low_entropy;
-	if ((low_entropy = send_recv(json, tcp_sock, udp_sock, sin, udp_sin, NULL)) < 0) {
-		return -1;
-	}
+	struct packet_info *info = malloc(sizeof(struct packet_info));
+	info->packet_id = 0;
+	info->payload = malloc(1000-2);
 
-	printf("low entropy time = %.0fms\n", low_entropy / (double) CLOCKS_PER_SEC * 1000);
-
-	char *data = readFile("h_entropy");
-    if (data == 0){
-        perror("Couldn't read entropy file, please try again later.");
-        return -1;
-    }
-
-	int wait = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time"));
-
-    printf("waiting %d seconds\n", wait);
-    sleep(wait);
-    printf("sending high entropy packets! \n");
-
-	int high_entropy;
-	if ((high_entropy = send_recv(json, tcp_sock, udp_sock, sin, udp_sin, data)) < 0) {
-		return -1;
-	}
-
-	printf("high entropy time = %.0fms\n", high_entropy / (double) CLOCKS_PER_SEC * 1000);
-
-	int time_diff = high_entropy - low_entropy;
-	char *stat = abs((double) time_diff / (double) CLOCKS_PER_SEC) > 0.1 ? "There is compression between these two ports!" : "No compression detected!";
+	// if (data) {
+	// 	strncpy(info->payload, data, payload_len-2);
+	// } else {
+		bzero(info->payload, 998);
+	// }
 	
-	printf("%s\n", stat);
+	int status = 0;
+	if ((status = sendto(udp_sock, info, 1000, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
+		printf("status = %d\n", status);
+		printf("udp packet #%d failed to send\n", 1);
+		perror("failed to send packet");
+		return -1;
+	}
+
+	// int low_entropy;
+	// if ((low_entropy = send_recv(json, tcp_sock, udp_sock, sin, udp_sin, NULL)) < 0) {
+	// 	return -1;
+	// }
+
+	// printf("low entropy time = %.0fms\n", low_entropy / (double) CLOCKS_PER_SEC * 1000);
+
+	// char *data = readFile("h_entropy");
+    // if (data == 0){
+    //     perror("Couldn't read entropy file, please try again later.");
+    //     return -1;
+    // }
+
+	// int wait = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Inter-Measurement Time"));
+
+    // printf("waiting %d seconds\n", wait);
+    // sleep(wait);
+    // printf("sending high entropy packets! \n");
+
+	// int high_entropy;
+	// if ((high_entropy = send_recv(json, tcp_sock, udp_sock, sin, udp_sin, data)) < 0) {
+	// 	return -1;
+	// }
+
+	// printf("high entropy time = %.0fms\n", high_entropy / (double) CLOCKS_PER_SEC * 1000);
+
+	// int time_diff = high_entropy - low_entropy;
+	// char *stat = abs((double) time_diff / (double) CLOCKS_PER_SEC) > 0.1 ? "There is compression between these two ports!" : "No compression detected!";
+	
+	// printf("%s\n", stat);
 	
     close(tcp_sock);
 	close(udp_sock);
