@@ -43,10 +43,7 @@ clock_t receive_udp(int sock, cJSON *json, struct sockaddr_in udp_sin) {
         }
 
         struct packet_info *info = (struct packet_info *) packet;
-        printf("current id = %d\n", info->packet_id);
-        // if (info->payload != NULL) {
-        //     printf("%s\n", info->payload);
-        // }
+        // printf("current id = %d\n", info->packet_id);
     }
 
     time = clock() - time;
