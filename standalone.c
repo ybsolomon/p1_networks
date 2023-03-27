@@ -19,212 +19,26 @@
 #include <errno.h>            // errno, perror()
 #include <time.h>
 #include <sys/select.h>
+#include <signal.h>
 
 #include "cJSON/cJSON.h"
 #include "util.h"
 
 // Define some constants.
-#define IP4_HDRLEN 20         // IPv4 header length
-#define TCP_HDRLEN 20         // TCP header length, excludes options data
-
-// Function prototypes
-
-/* Got the checksum functions from https://www.pdbuchan.com/rawsock/tcp4.c */
-uint16_t checksum (uint16_t *, int);
-uint16_t tcp4_checksum(struct ip, struct tcphdr);
-
-char *allocate_strmem (int);
-uint8_t *allocate_ustrmem (int);
-int *allocate_intmem (int);
+#define IP4_HDRLEN 20
+#define TCP_HDRLEN 20
 
 struct packet_info {
   short packet_id;
   char *payload;
 };
 
-int send_packet(cJSON *json, int sd, bool head, struct sockaddr_in *sin) {
-    int i, status, *ip_flags, *tcp_flags;
-    char *src_ip, *dst_ip;
-    struct ip iphdr;
-    struct tcphdr tcphdr;
-    uint8_t *packet;
-    struct addrinfo *res;
-    struct sockaddr_in *ipv4;
-    void *tmp;
-
-    // Allocate memory for various arrays.
-    packet = allocate_ustrmem (IP_MAXPACKET);
-    src_ip = allocate_strmem (INET_ADDRSTRLEN);
-    dst_ip = allocate_strmem (INET_ADDRSTRLEN);
-    ip_flags = allocate_intmem (4);
-    tcp_flags = allocate_intmem (8);
-
-    strcpy(src_ip, cJSON_GetObjectItem(json, "The Client's IP Address")->valuestring);
-    strcpy(dst_ip, cJSON_GetObjectItem(json, "The Server's IP Address")->valuestring);
-
-    // IPv4 header
-
-    // IPv4 header length (4 bits): Number of 32-bit words in header = 5
-    iphdr.ip_hl = IP4_HDRLEN / sizeof (uint32_t);
-
-    // Internet Protocol version (4 bits): IPv4
-    iphdr.ip_v = 4;
-
-    // Type of service (8 bits)
-    iphdr.ip_tos = 0;
-
-    // Total length of datagram (16 bits): IP header + TCP header
-    iphdr.ip_len = htons (IP4_HDRLEN + TCP_HDRLEN);
-
-    // ID sequence number (16 bits): unused, since single datagram
-    iphdr.ip_id = htons (0);
-
-    // Flags, and Fragmentation offset (3, 13 bits): 0 since single datagram
-
-    // Zero (1 bit)
-    ip_flags[0] = 0;
-
-    // Do not fragment flag (1 bit)
-    ip_flags[1] = 0;
-
-    // More fragments following flag (1 bit)
-    ip_flags[2] = 0;
-
-    // Fragmentation offset (13 bits)
-    ip_flags[3] = 0;
-
-    iphdr.ip_off = htons ((ip_flags[0] << 15)
-                        + (ip_flags[1] << 14)
-                        + (ip_flags[2] << 13)
-                        +  ip_flags[3]);
-
-    // Time-to-Live (8 bits): default to maximum value
-    iphdr.ip_ttl = 255;
-
-    // Transport layer protocol (8 bits): 6 for TCP
-    iphdr.ip_p = IPPROTO_TCP;
-
-    // Source IPv4 address (32 bits)
-    if ((status = inet_pton (AF_INET, src_ip, &(iphdr.ip_src))) != 1) {
-        fprintf (stderr, "inet_pton() failed for source address.\nError message: %s", strerror (status));
-        return (EXIT_FAILURE);
-    }
-
-    // Destination IPv4 address (32 bits)
-    if ((status = inet_pton (AF_INET, dst_ip, &(iphdr.ip_dst))) != 1) {
-        fprintf(stderr, "inet_pton() failed for destination address.\nError message: %s", strerror (status));
-        return (EXIT_FAILURE);
-    }
-
-    // IPv4 header checksum (16 bits): set to 0 when calculating checksum
-    iphdr.ip_sum = 0;
-    iphdr.ip_sum = checksum ((uint16_t *) &iphdr, IP4_HDRLEN);
-
-    // TCP header
-
-    // Source port number (16 bits)
-    tcphdr.th_sport = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Port Number for TCP"))); // <-------- CHANGE THIS
-
-    // Destination port number (16 bits)
-    if (head) {
-      tcphdr.th_dport = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for TCP Head SYN"))); // <-------- CHANGE THIS
-    } else {
-      tcphdr.th_dport = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for TCP Tail SYN"))); // <-------- CHANGE THIS
-    }
-
-    // Sequence number (32 bits)
-    tcphdr.th_seq = htonl (0);
-
-    // Acknowledgement number (32 bits): 0 in first packet of SYN/ACK process
-    tcphdr.th_ack = htonl (0);
-
-    // Reserved (4 bits): should be 0
-    tcphdr.th_x2 = 0;
-
-    // Data offset (4 bits): size of TCP header in 32-bit words
-    tcphdr.th_off = TCP_HDRLEN / 4;
-
-    /* Flags (8 bits) */
-
-    // FIN flag (1 bit)
-    tcp_flags[0] = 0;
-
-    // SYN flag (1 bit): set to 1
-    tcp_flags[1] = 1;
-
-    // RST flag (1 bit)
-    tcp_flags[2] = 0;
-
-    // PSH flag (1 bit)
-    tcp_flags[3] = 0;
-
-    // ACK flag (1 bit)
-    tcp_flags[4] = 0;
-
-    // URG flag (1 bit)
-    tcp_flags[5] = 0;
-
-    // ECE flag (1 bit)
-    tcp_flags[6] = 0;
-
-    // CWR flag (1 bit)
-    tcp_flags[7] = 0;
-
-    tcphdr.th_flags = 0;
-    for (i=0; i<8; i++) {
-      tcphdr.th_flags += (tcp_flags[i] << i);
-    }
-
-    // Window size (16 bits)
-    tcphdr.th_win = htons (65535);
-
-    // Urgent pointer (16 bits): 0 (only valid if URG flag is set)
-    tcphdr.th_urp = htons (0);
-
-    // TCP checksum (16 bits)
-    tcphdr.th_sum = tcp4_checksum(iphdr, tcphdr);
-
-    // Prepare packet.
-    // First part is an IPv4 header.
-    memcpy(packet, &iphdr, IP4_HDRLEN * sizeof (uint8_t));
-    memcpy((packet + IP4_HDRLEN), &tcphdr, TCP_HDRLEN * sizeof (uint8_t));
-	
-    memset(sin, 0, sizeof(struct sockaddr_in));
-    sin->sin_family = AF_INET;
-    sin->sin_addr.s_addr = iphdr.ip_dst.s_addr;
-
-    if (sendto (sd, packet, IP4_HDRLEN + TCP_HDRLEN, 0, (struct sockaddr *) sin, sizeof (struct sockaddr)) < 0)  {
-      perror ("sendto() failed");
-      return (EXIT_FAILURE);
-    }
-
-    free (packet);
-    free (src_ip);
-    free (dst_ip);
-    free (ip_flags);
-    free (tcp_flags);
-
-    return (EXIT_SUCCESS);
+void handleTimeout() {
+	printf("Failed to detect due to insufficient information.\n");
+	exit(0);
 }
 
-char *convert_to_binary(int num) { // this makes a big endian string representation of the int
-  int c, k;
-  short num_short = 0;
-	char *num_str = malloc(32); // 2 bits here
-	memset(num_str, 0, sizeof(*num_str));
-
-  for (c = 15; c >= 0; c--) {
-      k = num >> c; // getting bit value
-
-      if (k & 1) {
-          num_short |= 1UL << c;
-          *num_str |= 1UL << c;
-      }
-  }
-
-  return num_str;
-}
-
+/* Got the checksum functions from https://www.pdbuchan.com/rawsock/tcp4.c */
 uint16_t checksum(uint16_t *addr, int len) {
     int count = len;
     register uint32_t sum = 0;
@@ -248,7 +62,6 @@ uint16_t checksum(uint16_t *addr, int len) {
     return (answer);
 }
 
-// Build IPv4 TCP pseudo-header and call checksum function.
 uint16_t tcp4_checksum(struct ip iphdr, struct tcphdr tcphdr) {
     uint16_t svalue;
     char buf[IP_MAXPACKET], cvalue;
@@ -334,11 +147,11 @@ uint16_t tcp4_checksum(struct ip iphdr, struct tcphdr tcphdr) {
     return checksum ((uint16_t *) buf, chksumlen);
 }
 
-char *allocate_strmem(int len) {
+char *allocate_str(int len) {
     void *tmp;
 
     if (len <= 0) {
-      fprintf (stderr, "ERROR: Cannot allocate memory because len = %i in allocate_strmem().\n", len);
+      fprintf (stderr, "ERROR: Cannot allocate memory because len = %i in allocate_str().\n", len);
       exit (EXIT_FAILURE);
     }
 
@@ -347,16 +160,16 @@ char *allocate_strmem(int len) {
       memset (tmp, 0, len * sizeof (char));
       return (tmp);
     } else {
-      fprintf (stderr, "ERROR: Cannot allocate memory for array allocate_strmem().\n");
+      fprintf (stderr, "ERROR: Cannot allocate memory for array allocate_str().\n");
       exit (EXIT_FAILURE);
     }
 }
 
-uint8_t *allocate_ustrmem(int len) {
+uint8_t *allocate_ustr(int len) {
     void *tmp;
 
     if (len <= 0) {
-      fprintf (stderr, "ERROR: Cannot allocate memory because len = %i in allocate_ustrmem().\n", len);
+      fprintf (stderr, "ERROR: Cannot allocate memory because len = %i in allocate_ustr().\n", len);
       exit (EXIT_FAILURE);
     }
 
@@ -365,16 +178,16 @@ uint8_t *allocate_ustrmem(int len) {
       memset (tmp, 0, len * sizeof (uint8_t));
       return (tmp);
     } else {
-      fprintf (stderr, "ERROR: Cannot allocate memory for array allocate_ustrmem().\n");
+      fprintf (stderr, "ERROR: Cannot allocate memory for array allocate_ustr().\n");
       exit (EXIT_FAILURE);
     }
 }
 
-int *allocate_intmem(int len) {
+int *allocate_int(int len) {
     void *tmp;
 
     if (len <= 0) {
-      fprintf (stderr, "ERROR: Cannot allocate memory because len = %i in allocate_intmem().\n", len);
+      fprintf (stderr, "ERROR: Cannot allocate memory because len = %i in allocate_int().\n", len);
       exit (EXIT_FAILURE);
     }
 
@@ -383,9 +196,170 @@ int *allocate_intmem(int len) {
       memset (tmp, 0, len * sizeof (int));
       return (tmp);
     } else {
-      fprintf (stderr, "ERROR: Cannot allocate memory for array allocate_intmem().\n");
+      fprintf (stderr, "ERROR: Cannot allocate memory for array allocate_int().\n");
       exit (EXIT_FAILURE);
     }
+}
+
+int send_packet(cJSON *json, int sd, bool head, struct sockaddr_in *sin) {
+    int i, status, *ip_flags, *tcp_flags;
+    char *src_ip, *dst_ip;
+    struct ip iphdr;
+    struct tcphdr tcphdr;
+    uint8_t *packet;
+    struct sockaddr_in *ipv4;
+    void *tmp;
+
+    packet = allocate_ustr(IP_MAXPACKET);
+    src_ip = allocate_str(INET_ADDRSTRLEN);
+    dst_ip = allocate_str(INET_ADDRSTRLEN);
+    ip_flags = allocate_int(4);
+    tcp_flags = allocate_int(8);
+
+    strcpy(src_ip, cJSON_GetObjectItem(json, "The Client's IP Address")->valuestring);
+    strcpy(dst_ip, cJSON_GetObjectItem(json, "The Server's IP Address")->valuestring);
+
+    // IPv4 header
+
+    // IPv4 header length (4 bits): Number of 32-bit words in header = 5
+    iphdr.ip_hl = IP4_HDRLEN / sizeof (uint32_t);
+
+    // Internet Protocol version (4 bits): IPv4
+    iphdr.ip_v = 4;
+
+    // Type of service (8 bits)
+    iphdr.ip_tos = 0;
+
+    // Total length of datagram (16 bits): IP header + TCP header
+    iphdr.ip_len = htons (IP4_HDRLEN + TCP_HDRLEN);
+
+    // ID sequence number (16 bits): unused, since single datagram
+    iphdr.ip_id = htons (0);
+
+    // Flags, and Fragmentation offset (3, 13 bits): 0 since single datagram
+
+    // Zero (1 bit)
+    ip_flags[0] = 0;
+
+    // Do not fragment flag (1 bit)
+    ip_flags[1] = 0;
+
+    // More fragments following flag (1 bit)
+    ip_flags[2] = 0;
+
+    // Fragmentation offset (13 bits)
+    ip_flags[3] = 0;
+
+    iphdr.ip_off = htons ((ip_flags[0] << 15)
+                        + (ip_flags[1] << 14)
+                        + (ip_flags[2] << 13)
+                        +  ip_flags[3]);
+
+    // Time-to-Live (8 bits): default to maximum value
+    iphdr.ip_ttl = 255;
+
+    // Transport layer protocol (8 bits): 6 for TCP
+    iphdr.ip_p = IPPROTO_TCP;
+
+    // Source IPv4 address (32 bits)
+    if ((status = inet_pton (AF_INET, src_ip, &(iphdr.ip_src))) != 1) {
+        fprintf (stderr, "inet_pton() failed for source address.\nError message: %s", strerror (status));
+        return (EXIT_FAILURE);
+    }
+
+    // Destination IPv4 address (32 bits)
+    if ((status = inet_pton (AF_INET, dst_ip, &(iphdr.ip_dst))) != 1) {
+        fprintf(stderr, "inet_pton() failed for destination address.\nError message: %s", strerror (status));
+        return (EXIT_FAILURE);
+    }
+
+    // IPv4 header checksum (16 bits): set to 0 when calculating checksum
+    iphdr.ip_sum = 0;
+    iphdr.ip_sum = checksum ((uint16_t *) &iphdr, IP4_HDRLEN);
+
+    // TCP header
+
+    // Source port number (16 bits)
+    tcphdr.th_sport = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Port Number for TCP")));
+
+    // Destination port number (16 bits)
+    if (head) {
+      tcphdr.th_dport = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for TCP Head SYN")));
+    } else {
+      tcphdr.th_dport = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for TCP Tail SYN")));
+    }
+
+    // Sequence number (32 bits)
+    tcphdr.th_seq = htonl(0);
+
+    // Acknowledgement number (32 bits): 0 in first packet of SYN/ACK process
+    tcphdr.th_ack = htonl(0);
+
+    // Reserved (4 bits): should be 0
+    tcphdr.th_x2 = 0;
+
+    // Data offset (4 bits): size of TCP header in 32-bit words
+    tcphdr.th_off = TCP_HDRLEN / 4;
+
+    /* Flags (8 bits) */
+
+    // FIN flag (1 bit)
+    tcp_flags[0] = 0;
+
+    // SYN flag (1 bit): set to 1
+    tcp_flags[1] = 1;
+
+    // RST flag (1 bit)
+    tcp_flags[2] = 0;
+
+    // PSH flag (1 bit)
+    tcp_flags[3] = 0;
+
+    // ACK flag (1 bit)
+    tcp_flags[4] = 0;
+
+    // URG flag (1 bit)
+    tcp_flags[5] = 0;
+
+    // ECE flag (1 bit)
+    tcp_flags[6] = 0;
+
+    // CWR flag (1 bit)
+    tcp_flags[7] = 0;
+
+    tcphdr.th_flags = 0;
+    for (i=0; i<8; i++) {
+      tcphdr.th_flags += (tcp_flags[i] << i);
+    }
+
+    // Window size (16 bits)
+    tcphdr.th_win = htons (65535);
+
+    // Urgent pointer (16 bits): 0 (only valid if URG flag is set)
+    tcphdr.th_urp = htons (0);
+
+    // TCP checksum (16 bits)
+    tcphdr.th_sum = tcp4_checksum(iphdr, tcphdr);
+
+    memcpy(packet, &iphdr, IP4_HDRLEN * sizeof (uint8_t));
+    memcpy((packet + IP4_HDRLEN), &tcphdr, TCP_HDRLEN * sizeof (uint8_t));
+	
+    memset(sin, 0, sizeof(struct sockaddr_in));
+    sin->sin_family = AF_INET;
+    sin->sin_addr.s_addr = iphdr.ip_dst.s_addr;
+
+    if (sendto (sd, packet, IP4_HDRLEN + TCP_HDRLEN, 0, (struct sockaddr *) sin, sizeof (struct sockaddr)) < 0)  {
+      perror ("sendto() failed");
+      return (EXIT_FAILURE);
+    }
+
+    free (packet);
+    free (src_ip);
+    free (dst_ip);
+    free (ip_flags);
+    free (tcp_flags);
+
+    return (EXIT_SUCCESS);
 }
 
 int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, struct sockaddr_in udp_sin, char *data) {
@@ -394,6 +368,8 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 	if (send_packet(json, tcp_sock, true, &sin) < 0) {
 		return -1;
 	}
+
+	alarm(60);
 
 	int rsts = 0;
 	int maxfd, retval;
@@ -404,8 +380,8 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 	char buffer[payload_len];
 	fd_set readfds, writefds;
 
-	struct timeval tv;
-	tv.tv_sec = 5;
+	struct timeval tv; // minute long timeout
+	tv.tv_sec = 15;
 	tv.tv_usec = 0;
 
 	while (rsts < 2) {
@@ -421,7 +397,7 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 			perror("select");
 		} else if (retval == 0) {
 			printf("Timed out. Failed to detect due to insufficient information.\n");
-			exit(EXIT_FAILURE);
+			exit(0);
 		} else {
 			if (FD_ISSET(tcp_sock, &readfds)) {
 				if (recvfrom(tcp_sock, buffer, payload_len, 0, (struct sockaddr *) &sin, &addr_len) < 0) {
@@ -472,7 +448,44 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
   	return abs(rst_times[1] - rst_times[0]);
 }
 
+int setup_udp_socket(int udp_sock, struct sockaddr_in *udp_sin, cJSON *json) {
+    struct sockaddr_in src_sin;
+
+    memset (&src_sin, 0, sizeof (src_sin));
+    src_sin.sin_family = AF_INET; 
+    src_sin.sin_addr.s_addr = inet_addr(cJSON_GetObjectItem(json, "The Client's IP Address")->valuestring); 
+    src_sin.sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Source Port Number for UDP")));
+
+    if (bind(udp_sock, (struct sockaddr *) &src_sin, sizeof (src_sin)) < 0) {
+        perror("Could not bind to given source UDP address.");
+        return -1;
+    }
+
+    int addr_len = sizeof(&udp_sin);
+
+    memset(udp_sin, 0, sizeof (&udp_sin));
+    udp_sin->sin_family = AF_INET; 
+    udp_sin->sin_addr.s_addr = inet_addr(cJSON_GetObjectItem(json, "The Server's IP Address")->valuestring);
+    udp_sin->sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for UDP")));
+
+    int optval = 1;
+    if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
+        perror("couldn't reuse UDP address");
+        abort(); 
+    }
+
+	int ttl = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "TTL for the UDP Packets")); /* max = 255 */
+	if (setsockopt(udp_sock, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) < 0) {
+		perror("couldn't set TTL for UDP packets");
+		return -1;
+	}
+
+    return 0;
+}
+
 int main(int argc, char **argv) {
+	signal(SIGALRM, handleTimeout);
+
     if (argc < 2) {
       printf("Usage: sudo ./standalone <config file>");
       exit(-1);
@@ -499,46 +512,15 @@ int main(int argc, char **argv) {
         exit (EXIT_FAILURE);
     }
 
-    cJSON *dst = cJSON_GetObjectItem(json, "Destination Port Number for UDP");
-    cJSON *ip = cJSON_GetObjectItem(json, "The Server's IP Address");
-
-    struct sockaddr_in sin;
-
     int udp_sock = socket(AF_INET, SOCK_DGRAM, PF_UNSPEC);
 
-    in_addr_t server_addr = inet_addr(ip->valuestring); 
-
     struct sockaddr_in udp_sin;
-    int addr_len = sizeof(udp_sin);
 
-    memset (&udp_sin, 0, sizeof (udp_sin));
-    udp_sin.sin_family = AF_INET; 
-    udp_sin.sin_addr.s_addr = server_addr; 
-    udp_sin.sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Destination Port Number for UDP")));
-
-    if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof (optval)) < 0) { // for port reuse after a bad exit
-        perror("couldn't reuse UDP address");
-        abort(); 
-    }
-
-	int ttl = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "TTL for the UDP Packets")); /* max = 255 */
-	if (setsockopt(udp_sock, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) < 0) {
-		perror("couldn't set TTL for UDP packets");
-		return -1;
-	}
-
-	/* Source addr struct */
-    struct sockaddr_in src_sin;
-
-    memset (&src_sin, 0, sizeof (src_sin));
-    src_sin.sin_family = AF_INET; 
-    src_sin.sin_addr.s_addr = inet_addr(cJSON_GetObjectItem(json, "The Client's IP Address")->valuestring); 
-    src_sin.sin_port = htons(cJSON_GetNumberValue(cJSON_GetObjectItem(json, "Source Port Number for UDP")));
-
-    if (bind(udp_sock, (struct sockaddr *) &src_sin, sizeof (src_sin)) < 0) {
-        perror("Could not bind to given source UDP address.");
+	if (setup_udp_socket(udp_sock, &udp_sin, json) < 0) {
         return -1;
     }
+
+    struct sockaddr_in sin;
 
 	int low_entropy;
 	if ((low_entropy = send_recv(json, tcp_sock, udp_sock, sin, udp_sin, NULL)) < 0) {
@@ -573,4 +555,8 @@ int main(int argc, char **argv) {
 	
     close(tcp_sock);
 	close(udp_sock);
+
+	free(json);
+	free(data);
+	free(file);
 }
