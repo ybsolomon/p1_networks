@@ -25,18 +25,19 @@ void cleanExit() {
 
 int send_udp(int train_len, int payload_len, int udp_sock, struct sockaddr_in udp_sin, char *data) {
     for (int i = 0; i < train_len; i++) {
-        struct packet_info *info = malloc(sizeof(struct packet_info));
-        info->packet_id = i;
-        info->payload = malloc(payload_len-2);
+        char buffer[payload_len];
+        memcpy(buffer, &i, 2);
 
         if (data) {
-            strncpy(info->payload, data, payload_len-2);
+            strncpy(buffer+2, data, payload_len-3);
         } else {
-            bzero(info->payload, payload_len-2);
+            bzero(buffer+2, payload_len-3);
         }
         
+        buffer[payload_len-2] = '\0';
+
         int status = 0;
-        if ((status = sendto(udp_sock, info, payload_len, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
+        if ((status = sendto(udp_sock, buffer, payload_len, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
             printf("status = %d\n", status);
             printf("udp packet #%d failed to send\n", i+1);
             perror("failed to send packet");
@@ -139,6 +140,7 @@ int main(int argc, char *argv[]) {
     int payload_len = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Size of the UDP Payload in the UDP Packet Train"));
     int train_len = cJSON_GetNumberValue(cJSON_GetObjectItem(json, "The Number of UDP Packets in the UDP Packet Train"));
 
+    printf("sending low entropy chain now!\n");
     if (send_udp(train_len, payload_len, udp_sock, udp_sin, NULL) < 0) { // low entropy packets here
         cleanExit();
     }
@@ -147,7 +149,7 @@ int main(int argc, char *argv[]) {
 
     printf("waiting %d seconds to send packets\n", wait);
     sleep(wait);
-    printf("time to send! \n");
+    printf("sending high entropy chain now!\n");
 
     char *data = readFile("h_entropy");
     if (data == 0){
@@ -171,7 +173,7 @@ int main(int argc, char *argv[]) {
         cleanExit();
     }
 
-    printf("Result: %s\n", buf + 5);
+    printf("\nResult: %s\n", buf + 5);
 
     free(buf);
     free(json);
