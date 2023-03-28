@@ -371,9 +371,9 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 
 	alarm(60);
 
+	int i = 0;
 	int rsts = 0;
 	int maxfd, retval;
-	int i = train_len - 1;
 	int addr_len = sizeof(udp_sin);
 
 	clock_t rst_times[2];
@@ -416,10 +416,10 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 				}
 			}
 
-			if (i >= 0 && FD_ISSET(udp_sock, &writefds)) {
+			if (i < train_len && FD_ISSET(udp_sock, &writefds)) {
 				char buffer[payload_len];
 				memcpy(buffer, &i, 2);
-				i--;
+				i++;
 
 				if (data) {
 					strncpy(buffer+2, data, payload_len-3);
@@ -438,7 +438,7 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 				}
 				
 				usleep(200);
-			} else if (i-- == -1) {
+			} else if (i++ == train_len) {
 				if (send_packet(json, tcp_sock, false, &sin) < 0) {
 					printf("couldn't send the final TCP packet\n");
 					return -1;
