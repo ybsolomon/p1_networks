@@ -417,18 +417,20 @@ int send_recv(cJSON* json, int tcp_sock, int udp_sock, struct sockaddr_in sin, s
 			}
 
 			if (i >= 0 && FD_ISSET(udp_sock, &writefds)) {
-				struct packet_info *info = malloc(sizeof(struct packet_info));
-				info->packet_id = i--;
-				info->payload = malloc(payload_len-2);
+				char buffer[payload_len];
+				memcpy(buffer, &i, 2);
+				i--;
 
 				if (data) {
-					strncpy(info->payload, data, payload_len-2);
+					strncpy(buffer+2, data, payload_len-3);
 				} else {
-					bzero(info->payload, payload_len-2);
+					bzero(buffer+2, payload_len-3);
 				}
 				
+				buffer[payload_len-2] = '\0';
+
 				int status = 0;
-				if ((status = sendto(udp_sock, info, payload_len, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
+				if ((status = sendto(udp_sock, buffer, payload_len, 0, (struct sockaddr *) &udp_sin, sizeof(udp_sin))) < 0) {
 					printf("status = %d\n", status);
 					printf("udp packet #%d failed to send\n", i+1);
 					perror("failed to send packet");
