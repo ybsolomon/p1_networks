@@ -5,7 +5,7 @@
 To successfully run this program, you must populate a JSON file with the following parameters (***case-sensitive***) or the application **WILL NOT RUN CORRECTLY**:
 
 ```
-- The Server’s IP Address
+- The Server's IP Address
 - The Client's IP Address
 - Source Port Number for UDP
 - Destination Port Number for UDP
