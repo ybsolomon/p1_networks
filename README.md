@@ -2,43 +2,51 @@
 ### Yordanos Solomon (ID: 20543571)
 ---
 ## Config File
-To successfully run this program, you must populate a JSON file with the following parameters or the program **WILL NOT RUN**:
+To successfully run this program, you must populate a JSON file with the following parameters (***case-sensitive***) or the application **WILL NOT RUN CORRECTLY**:
 
-```
+```json
 - The Server’s IP Address
+- The Client's IP Address
 - Source Port Number for UDP
 - Destination Port Number for UDP
-- Destination Port Number for TCP Head SYN, x
-- Destination Port Number for TCP Tail SYN, y
-- Port Number for TCP (Pre-/Post- Probing Phases)
-- The Size of the UDP Payload in the UDP Packet Train, ℓ (default value: 1000B)
-- Inter-Measurement Time, γ (default value: 15 seconds)
-- The Number of UDP Packets in the UDP Packet Train, n (default value: 6000)
-- TTL for the UDP Packets (default value: 255)
+- Destination Port Number for TCP Head SYN
+- Destination Port Number for TCP Tail SYN
+- Port Number for TCP
+- The Size of the UDP Payload in the UDP Packet Train
+- Inter-Measurement Time
+- The Number of UDP Packets in the UDP Packet Train
+- TTL for the UDP Packets (only required for standalone application)
 ```
 
 ## Server/Client Application
-### Server Command Line Arguments:
-```
-username@somewhere$: make server
+The server and client must be run on the machines that correspond to the IP addresses specified in the config file (server runs on server machine, client runs on client machine), otherwise the sockets will not bind.
 
-username@somewhere$: ./server <port number from config file>
+### Server Setup:
+To build and run the server side of the compression detection application, you must run `make server`, which is specified in the Makefile. Then to start the app, the only command line argument needed is the server's port number, which is found in the config file.
 ```
-
-### Client Command Line Arguments:
+username@server$: make server
+username@server$: ./server <port-number>
 ```
-username@somewhere$: make client
+***The server must be running before starting the client in order for a connection to be established.***
 
-username@somewhere$: ./client <path to config file>
+### Client Setup:
+To build and run the client side, you must run `make client`, which is specified in the Makefile. The only command line argument necessary to run the client is the path to the config file.
+
 ```
-
-In order for this program to work, the server and client must be run on the machines that correspond to the IP addresses specified in the config file (i.e. server runs on server machine, client runs on client machine) or else the sockets will not bind.
+username@client$: make client
+username@client$: ./client <path-to-config-file>
+```
 
 ## Standalone Application
-### Command line arguments:
-```
-username@somewhere$ make standalone
+The standalone application must be run on the machine that corresponds to the client IP address specified in the config file, otherwise the sockets will not bind.
 
-username@somewhere$ sudo ./standalone <path to config file>
+### Standalone Setup:
+To build and run the standalone application, you must run `make standalone`, which is specified in the Makefile.  The standalone app must be run as the root user, but like the client, only requires the path to the config file as an argument.
+
+```
+username@client$: make standalone
+username@client$: sudo ./standalone <path-to-config-file>
 ```
 
+### Compilation Tip!
+To compile the server/client and standalone applications at once, use `make all` on both machines.

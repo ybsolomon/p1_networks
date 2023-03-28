@@ -1,4 +1,4 @@
-All: server client standalone
+all: server client standalone
 
 server: server.c util.c cJSON/cJSON.c
 	gcc -g -o server server.c util.c cJSON/cJSON.c
